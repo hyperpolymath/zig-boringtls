@@ -107,7 +107,7 @@ hand; that migration is done per repo (ADR-008 phase P3). In deed files use
 - Contractiles (intend, must, trust, adjust, bust, dust) are k9 contracts in
   `.machine_readable/contractiles/<verb>/`. The deed attests to them
   (`:contractiles_required`, and a `(contractiles …)` clause per D312).
-- Do not hand-convert A2ML in bulk: conversion is kcX's first front end (D313).
+- Do not hand-convert A2ML in bulk: conversion is kyX's first front end (D313).
 
 **ENFORCEMENT:** these rulings are recorded on `standards#787`. Some are
 ruled but not yet gated: check the gate on `standards` main before
