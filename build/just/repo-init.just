@@ -460,7 +460,7 @@ repo-init archetype="":
         # <stem>_chora.deed — deed.abnf v1.0.0). The self-name pass rewrote
         # the slug inside the file; the file itself is renamed here. Plain mv:
         # mint runs before the new repo's first commit. Renames (not tokens)
-        # are how filenames change — a {{REPO}} token in a FILENAME is the
+        # are how filenames change — a zig-boringtls token in a FILENAME is the
         # brace-collapse hazard class repo-init has already been burnt by.
         if [ -f rsr-template-repo_chora.deed ]; then
             mv rsr-template-repo_chora.deed "${REPO}_chora.deed"

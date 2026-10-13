@@ -45,7 +45,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 # Where this repository keeps each part of the set. A file sits at the root only
 # when something needs it there (launcher.sh, Justfile, mise.toml, mise.lock);
 # the Guix trio and the warm-ups follow the layout the repository already has
-# (rsr-template-repo keeps build/guix.scm and docs/onboarding/llm-warmup-*.adoc).
+# (zig-boringtls keeps build/guix.scm and docs/onboarding/llm-warmup-*.adoc).
 # This is the ONE answer: provision-check.sh asks it through `guix-dir` and
 # `set-files` rather than keeping its own copy.
 guix_dir()   { if [ -f build/guix.scm ]; then echo build; else echo .; fi; }
@@ -85,7 +85,7 @@ ARCHETYPE="$(deed archetype "")"
 # ---------------------------------------------------------------------------
 # Language detection. Markers at the root or one level down (workspaces). The
 # estate ABI/FFI pattern nests deeper: Idris2 to two levels down (src/abi/*.ipkg),
-# Zig to three (ffi/zig/build.zig, and rsr-template-repo's src/interface/ffi/build.zig:
+# Zig to three (ffi/zig/build.zig, and zig-boringtls's src/interface/ffi/build.zig:
 # 74 repos have their only build.zig at that depth, measured 2026-09-30).
 # Order matters only for display. `docs` is reported when nothing else is.
 first() { find . -maxdepth "${2:-2}" -not -path './.git/*' -not -path '*/node_modules/*' -not -path './target/*' -name "$1" -print -quit 2>/dev/null; }

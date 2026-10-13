@@ -12,7 +12,6 @@
 # 4. Verifies builds work after instantiation
 # 5. Cleans up
 
-
 # Test configuration
 TEMPLATE_ROOT="${1:-.}"
 TEST_DIR="${TMPDIR:-/tmp}/rsr-template-test-$$"
