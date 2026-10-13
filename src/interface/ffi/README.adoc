@@ -1,3 +1,13 @@
 // SPDX-License-Identifier: CC-BY-SA-4.0
-// Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
-= ffi Logic
+// SPDX-FileCopyrightText: 2026 Jonathan D.A. Jewell
+= src/interface/ffi — the boringtls Zig package
+
+The Zig side of zig-boringtls: `build.zig` compiles the hash-pinned BoringSSL,
+`src/root.zig` is the wrapper, `src/c.zig` the hand-written C declarations,
+`tests/` the loopback handshake tests and FFI drift check, `scripts/` the
+fixture generator, mutation check, drift self-test and Zig std probe.
+
+Unlike the template's original scaffold, this package does not *export* a
+C ABI; it *wraps* a C library. See the repository `README.adoc`, ADR 0004
+(`docs/decisions/0004-tls-library-for-zig.adoc`) and the security notes
+(`docs/security/TLS-WRAPPER-SECURITY.adoc`).

@@ -1,152 +1,47 @@
 # SPDX-License-Identifier: MPL-2.0
-# zig-boringtls Container Image
+# SPDX-FileCopyrightText: 2026 Jonathan D.A. Jewell
 #
-# Multi-stage build template for Chainguard Wolfi base images.
-# Customise the builder stage for your language and copy the
-# resulting binary/release into the minimal runtime stage.
+# zig-boringtls build-and-test image.
 #
-# This is the Tier-A artifact: a plain OCI image, buildable by ANY
-# OCI-compliant engine — podman (recommended), nerdctl, or docker.
-# It carries no hard dependency on the stapeln tier; the cerro-torre /
-# svalinn files under build/container/stapeln/ are referenced only as labels.
+# zig-boringtls is a library, so this image does not run a service: it
+# builds the pinned BoringSSL and the wrapper, then runs the test suite.
+# Network is needed only while the image is built (Wolfi packages, the
+# SHA-256-verified Zig toolchain, and the hash-pinned BoringSSL fetch).
+# Run the tests with networking disabled; they only use loopback.
 #
-# Build (engine-agnostic — substitute podman | nerdctl | docker):
-#   podman build -t zig-boringtls:latest -f build/container/Containerfile .
+#   podman build -t zig-boringtls-test -f build/container/Containerfile .
+#   podman run --rm --network=none zig-boringtls-test
 #
-# Run:
-#   podman run -p 8080:8080 zig-boringtls:latest
-#
-# Run with persistent volume:
-#   podman run -p 8080:8080 -v zig-boringtls-data:/data zig-boringtls:latest
-#
-# Via the Justfile (auto-detects engine, prefers cerro-torre when present):
-#   just container-build
+# The template's service scaffolding beside this file (entrypoint.sh,
+# compose*, stapeln/) is not used by this repository.
 
-# ============================================================================
-# Stage 1: Builder
-# ============================================================================
-#
-# Install build tools and compile the application.
-# This stage is discarded after the build — only the compiled output
-# is copied into the runtime stage.
-#
-# Language-specific examples (uncomment the one you need):
-#
-# --- Rust ---
-#   RUN apk add --no-cache rust pkgconf build-base
-#   COPY Cargo.toml Cargo.lock ./
-#   COPY src/ ./src/
-#   RUN cargo build --release
-#   # Output: /build/target/release/zig-boringtls
-#
-# --- Elixir ---
-#   RUN apk add --no-cache erl27-elixir-1.18 erlang-27 erlang-27-dev git build-base
-#   COPY mix.exs mix.lock ./
-#   COPY lib/ ./lib/
-#   COPY config/ ./config/
-#   ENV MIX_ENV=prod
-#   RUN mix local.hex --force && mix local.rebar --force && \
-#       mix deps.get --only prod && mix compile && mix release
-#   # Output: /build/_build/prod/rel/zig-boringtls/
-#
-# --- Zig ---
-#   RUN apk add --no-cache zig build-base
-#   COPY build.zig build.zig.zon ./
-#   COPY src/ ./src/
-#   RUN zig build -Doptimize=ReleaseFast
-#   # Output: /build/zig-out/bin/zig-boringtls
-#
-# Base image: `:latest` is right for a template scaffold (Chainguard rebuilds
-# Wolfi daily). For PRODUCTION builds, pin by digest for reproducibility/supply-
-# chain integrity, e.g.:
-#   FROM cgr.dev/chainguard/wolfi-base:latest@sha256:<digest> AS builder
-# (cerro-torre's .ctp signing in build/container/stapeln/ records the resolved digest.)
-FROM cgr.dev/chainguard/wolfi-base:latest AS builder
+# Wolfi base, pinned by digest (resolve a newer one deliberately).
+FROM cgr.dev/chainguard/wolfi-base@sha256:256c88bb066424045021090932d50be93c8e3f2ce3586707702a401b146f3e43
 
-# TODO: Install your language toolchain
-RUN apk add --no-cache build-base
+ARG ZIG_VERSION=0.17.0
+ARG ZIG_SHA256=1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
 
-WORKDIR /build
-
-# TODO: Copy source files and build
-COPY . .
-# RUN <your-build-command>
-
-# ============================================================================
-# Stage 2: Runtime
-# ============================================================================
-#
-# Minimal production image. Only the compiled binary/release and runtime
-# dependencies are included. No compilers, no source code, no build tools.
-#
-FROM cgr.dev/chainguard/wolfi-base:latest
-
-# OCI image labels (compatible with cerro-torre .ctp bundle metadata)
-LABEL org.opencontainers.image.title="zig-boringtls" \
-      org.opencontainers.image.description="Thin typestate Zig wrapper over BoringSSL for TLS 1.3 clients: DoH, Gemini TOFU pinning, client certificates" \
-      org.opencontainers.image.url="https://github.com/hyperpolymath/zig-boringtls" \
+LABEL org.opencontainers.image.title="zig-boringtls-test" \
+      org.opencontainers.image.description="Build-and-test image for zig-boringtls (thin typestate Zig wrapper over BoringSSL)" \
       org.opencontainers.image.source="https://github.com/hyperpolymath/zig-boringtls" \
-      org.opencontainers.image.vendor="hyperpolymath" \
-      org.opencontainers.image.licenses="MPL-2.0" \
-      org.opencontainers.image.authors="Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>" \
-      dev.cerrotorre.manifest="build/container/stapeln/manifest.toml" \
-      dev.cerrotorre.gatekeeper="build/container/stapeln/.gatekeeper.yaml" \
-      dev.stapeln.compose="build/container/stapeln/compose.toml"
+      org.opencontainers.image.licenses="MPL-2.0"
 
-# Install minimal runtime dependencies.
-# Adjust this list for your application:
-#   - ca-certificates: TLS root certificates
-#   - curl: health check probe
-#   - libstdc++: C++ standard library (if needed by native deps)
-#   - ncurses: terminal UI (if needed, e.g. Elixir IEx)
-RUN apk add --no-cache ca-certificates curl
+# bash + openssl: the per-build fixture generator; curl + xz: the toolchain fetch.
+RUN apk add --no-cache bash openssl curl xz ca-certificates
+RUN curl -fsSLo /tmp/zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" \
+ && echo "${ZIG_SHA256}  /tmp/zig.tar.xz" | sha256sum -c - \
+ && tar -C /opt -xf /tmp/zig.tar.xz \
+ && mkdir -p /usr/local/bin \
+ && ln -s "/opt/zig-x86_64-linux-${ZIG_VERSION}/zig" /usr/local/bin/zig \
+ && rm /tmp/zig.tar.xz
 
-# Create non-root user for the application.
-# Running as root inside containers is a security anti-pattern.
-RUN addgroup -S appuser && adduser -S appuser -G appuser
+RUN adduser -D build
+USER build
+WORKDIR /home/build/ffi
+COPY --chown=build:build src/interface/ffi/ .
+# Fetch (Zig verifies the content hash in build.zig.zon), then build with
+# networking off so nothing else can be pulled in.
+RUN zig build --fetch
+RUN --network=none zig build install
 
-WORKDIR /app
-
-# TODO: Copy compiled binary/release from builder stage.
-# Examples:
-#   COPY --from=builder /build/target/release/zig-boringtls /app/zig-boringtls
-#   COPY --from=builder /build/_build/prod/rel/zig-boringtls /app/release/
-#   COPY --from=builder /build/zig-out/bin/zig-boringtls /app/zig-boringtls
-
-# Copy entrypoint script
-COPY build/container/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
-
-# OPTIONAL (Tier C — stapeln). A pure OCI image does NOT need these baked in:
-# svalinn reads .gatekeeper.yaml from a mounted volume (see stapeln/compose.toml),
-# and cerro-torre reads manifest.toml at pack time. Uncomment only if you want
-# the policy/manifest embedded in the image itself.
-# COPY build/container/stapeln/.gatekeeper.yaml /etc/svalinn/gatekeeper.yaml
-# COPY build/container/stapeln/manifest.toml /app/manifest.toml
-
-# Create data directory for persistent storage (mountable volume)
-RUN mkdir -p /data && chown appuser:appuser /data
-
-# Set ownership of the application directory
-RUN chown -R appuser:appuser /app
-
-# Environment variables — customise for your application
-ENV APP_HOST=[::]
-ENV APP_PORT=8080
-ENV APP_LOG_FORMAT=json
-ENV APP_DATA_DIR=/data
-
-# Declare /data as a volume for persistent storage
-VOLUME ["/data"]
-
-# Run as non-root
-USER appuser
-
-# Expose the application port
-EXPOSE 8080
-
-# Health check — the application must respond 2xx at /health
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -sf http://localhost:${APP_PORT}/health || exit 1
-
-ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["zig", "build", "test", "--summary", "all"]
