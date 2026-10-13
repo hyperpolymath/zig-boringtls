@@ -1,0 +1,15 @@
+.{
+    .name = .boringtls,
+    .version = "0.1.0",
+    .fingerprint = 0x1a14523c1a8f7071,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        // Pinned: BoringSSL has no stable API and no backports. Update deliberately; see docs/security/TLS-WRAPPER-SECURITY.adoc.
+        // Tag 0.20260929.0 = commit 427ec40cc8edc545253289232e885708c409e5ea.
+        .boringssl = .{
+            .url = "https://github.com/google/boringssl/archive/refs/tags/0.20260929.0.tar.gz",
+            .hash = "N-V-__8AAMfBdQ4auND0ndV9UNczDiuUi8ej0PzNKo3jNUSP",
+        },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "src", "README.adoc" },
+}
