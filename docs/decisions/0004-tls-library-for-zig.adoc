@@ -1,0 +1,253 @@
+// SPDX-License-Identifier: CC-BY-SA-4.0
+// SPDX-FileCopyrightText: 2026 Jonathan D.A. Jewell
+= Architecture Decision Record: 0004 — TLS 1.3 library for zig-boringtls
+:toc:
+
+== 4. Use BoringSSL, pinned, behind a thin Zig wrapper
+
+Date: 2026-10-13
+
+=== Status
+
+Accepted (owner brief, 2026-10-13). Supersedes nothing.
+
+=== Context
+
+Estate Zig code needs a TLS 1.3 client that can serve DoH (ALPN `h2`), DoQ
+(a QUIC-TLS interface), Gemini (trust-on-first-use pinning) and client
+certificates. Writing a TLS implementation is out of scope. Four candidates
+were evaluated: Zig's standard library client, BoringSSL, Mbed TLS and
+wolfSSL. The full comparison follows below this record.
+
+=== Decision
+
+Use *BoringSSL*, pinned by tag and content hash, compiled from source by
+`src/interface/ffi/build.zig`, behind a narrow, typestate Zig wrapper in
+`src/interface/ffi/`.
+
+=== Consequences
+
+==== Positive
+
+* One library covers every requirement: TLS 1.3, ALPN, QUIC-TLS, custom
+  (TOFU) verification and client certificates.
+* Apache-2.0 sits cleanly with the estate's MPL-2.0 code.
+* Builds with Zig's toolchain alone (no CMake, Go or Perl), so
+  cross-compilation stays a Zig concern.
+
+==== Negative
+
+* BoringSSL promises no API or ABI stability and backports nothing to its
+  tags, so every pin bump is a review-and-retest event, and the estate owns
+  the CVE response for a statically linked copy.
+* `libssl` is C++, so builds link libc++.
+* No public whole-library audit exists; external review is flagged in
+  `docs/security/TLS-WRAPPER-SECURITY.adoc`.
+
+==== Neutral
+
+* If DoQ is dropped, Mbed TLS LTS becomes the better-governed choice; if
+  GPL-3.0 (or a commercial licence) is acceptable, wolfSSL is. AWS-LC is an
+  unevaluated BoringSSL-compatible alternative with a stability commitment.
+
+'''
+
+[[tls-13-for-a-zig-project-comparison-and-recommendation]]
+== Appendix: comparison and recommendation
+
+Evaluated 2026-10-13 against *Zig 0.17.0* (released 2026-10-01, the latest stable on ziglang.org's index that day). Library versions are the newest release tags on that date, inspected from source:
+
+[cols=",,",options="header",]
+|===
+|Library |Tag inspected |Tag date
+|Zig std `std.crypto.tls.Client` |Zig 0.17.0 |2026-10-01
+|BoringSSL |`0.20260929.0` |2026-09-29
+|Mbed TLS |`v4.2.0` (and `v3.6.7` LTS) |2026-07-07
+|wolfSSL |`v5.9.4-stable` |2026-09-25
+|===
+
+Claims carry statuses from the estate taxonomy (PROVEN / TESTED / ASSUMED / DESIGNED / OPEN). Nothing here is PROVEN. ASSUMED is split to show where the evidence came from:
+
+* *TESTED*: executed in this repository; the artefact is named.
+* *ASSUMED-src*: read in the primary source or official document named at the pinned tag. Nothing was executed.
+* *ASSUMED-ext*: taken from a secondary source (vendor post, blog, search) and not checked further.
+* *DESIGNED*: intended, not yet demonstrated.
+* *OPEN*: not evaluated.
+
+=== What the project needs
+
+[cols=",",options="header",]
+|===
+|Need |What it requires from the TLS library
+|TLS 1.3 client |A working TLS 1.3 client handshake
+|DoH (RFC 8484) |ALPN (`h2` for HTTP/2, which RFC 8484 recommends as the minimum), normal WebPKI verification
+|DoQ (RFC 9250) |A *QUIC-TLS interface*: the library must export per-encryption-level secrets and hand handshake bytes to a QUIC stack rather than writing TLS records itself, plus the `quic_transport_parameters` extension and ALPN `doq`
+|Gemini TOFU pinning |A hook to replace CA-chain verification with a custom decision, _during_ the handshake, plus access to the peer's leaf certificate (DER)
+|Client certificates |Respond to a server `CertificateRequest` with a configured chain and key
+|===
+
+=== Summary matrix
+
+[cols=",,,,",options="header",]
+|===
+| |Zig std 0.17.0 |BoringSSL |Mbed TLS 4.2 / 3.6 |wolfSSL 5.9.4
+|Maintenance |Active, but pre-1.0; std API churns every release |Very active; "live at head", tagged snapshots with *no backports* |Active; semver; LTS 3.6 to Mar 2027, LTS 4.1 to Mar 2029 |Active; regular stable releases (5 in 2026 to date)
+|API stability |None promised (pre-1.0) |*None promised*; README says "not intended for general use" |Strong within a major version |Strong; long-lived API
+|Public audit history |None found |No public whole-library audit found; FIPS 140-3 for the crypto module only; extensive fuzzing; fiat-crypto verified field arithmetic |Calif audit of 3.6.2, commissioned by Google, 2025 (1 High, 4 Medium, fixed) |FIPS 140-3 for wolfCrypt; independent research (e.g. Trail of Bits / tlspuffin 2022–23); 92 unique CVE IDs fixed in releases 5.8.2–5.9.4
+|Licence |MIT |Apache-2.0 (relicensed Feb 2025) |Apache-2.0 OR GPL-2.0-or-later |*GPL-3.0* (since 5.8.2, July 2025) or commercial
+|Build from Zig |None (it is std) |Moderate: C11 *and C++17*; pre-generated asm and `gen/sources.json` let `build.zig` compile it without CMake/Go/Perl |Easy (C99), but 4.x from git needs Python-generated files (release tarballs include them) and two submodules |Easy (C only, `user_settings.h`)
+|TLS 1.3 |Yes (client) |Yes |Yes |Yes
+|ALPN (DoH/h2) |*No* |Yes |Yes |Yes
+|QUIC-TLS API (DoQ) |*No* |*Yes* (`SSL_set_quic_method`) |*No* |*Yes* (`wolfssl/quic.h`)
+|Custom verify for TOFU |*No*; peer cert is not retained after `init` |Yes (`SSL_set_custom_verify`, `SSL_get0_peer_certificates`) |Yes (`mbedtls_ssl_set_verify`, keep-peer-cert option) |Yes (verify callback)
+|Client certificates |*No* (a `CertificateRequest` aborts the handshake) |Yes |Yes |Yes
+|Known path-validation defect |*Yes*: does not check `cA`/basicConstraints (TESTED here) |None known |None known |None known
+|===
+
+Only BoringSSL and wolfSSL meet every functional requirement. Licence then separates them: BoringSSL is Apache-2.0; wolfSSL is GPL-3.0 unless you buy a commercial licence.
+
+'''''
+
+[[1-zig-standard-library-stdcryptotlsclient]]
+=== 1. Zig standard library: `std.crypto.tls.Client`
+
+*Maintenance.* It ships with Zig, so it is maintained, but Zig is pre-1.0 and the std API changes every release. 0.16/0.17 rewrote I/O around `std.Io`, so `Client.init` now takes `*std.Io.Reader` / `*std.Io.Writer` and a `std.Io` handle for bundle locking. ASSUMED-src: `lib/std/crypto/tls/Client.zig` in 0.17.0.
+
+*Audit history.* No public audit found. ASSUMED-ext (search, 2026-10-13).
+
+*Licence.* MIT.
+
+*Build complexity.* None.
+
+*Features against our needs* (all ASSUMED-src in 0.17.0 source):
+
+* TLS 1.3 and 1.2, *client only*.
+* *No ALPN.* `Client.zig` never sends `application_layer_protocol_negotiation`. HTTP/1.1 DoH would work; h2 negotiation would not.
+* *No QUIC interface.* The record layer is built in; nothing exports traffic secrets per encryption level.
+* *No client certificates.* The handshake switch has no `certificate_request` arm, so a server that asks for a client certificate gets `error.TlsUnexpectedMessage`.
+* *No TOFU hook.* `Options.ca` is `no_verification | self_signed | bundle`. `self_signed` only checks that the certificate signs itself. The `Client` struct keeps no copy of the peer certificate, so a caller can't fingerprint it after the handshake. Pinning would need a fork.
+* `Certificate.parse` records only subjectAltName from the extensions. Unrecognised extensions are skipped (`continue`) *even when marked critical*. basicConstraints, keyUsage, extKeyUsage and nameConstraints are never enforced.
+
+*Known security defect: TESTED.* The chain logic accepts a leaf certificate signed by another _non-CA_ leaf. That lets anyone holding any publicly trusted certificate impersonate any host to a Zig std TLS client on platforms where Zig does its own path validation (Linux, BSD). It is public and open upstream: https://codeberg.org/ziglang/zig/issues/35877[ziglang/zig#35877], filed 2026-06-21 against 0.17.0-dev. It is *still present in the 0.17.0 release*. Reproduction artefact: `src/interface/ffi/scripts/probe-std-basic-constraints.sh`. It builds root → `a.test` (CA:FALSE) → `evil.test`. OpenSSL rejects the chain ("key usage does not include certificate signing"), but Zig's `Certificate.Parsed.verify` sequence, as used in `Client.zig`, accepts it.
+
+Related open issues: #36156 (non-minimal DER accepted in ECDSA signatures) and #36288 (system bundle ignores `SSL_CERT_FILE`/`SSL_CERT_DIR`).
+
+*Verdict:* unsuitable today. It fails DoQ, client certificates and TOFU outright, and its WebPKI validation has an open impersonation bug.
+
+[[2-boringssl]]
+=== 2. BoringSSL
+
+*Maintenance.* Very active: snapshot tags several times a month (most recent `0.20260929.0`). `INCORPORATING.md` says consumers should "live at head". Tags "do not represent any kind of stability". BoringSSL "will not cherry-pick bugfixes to them". The README says it "is not intended for general use" and gives "no guarantees of API or ABI stability". ASSUMED-src: `README.md`, `INCORPORATING.md`, `BREAKING-CHANGES.md` at the tag.
+
+*Audit history.* I found no public third-party audit of the whole library (ASSUMED-ext, from search). What exists:
+
+* The BoringCrypto module (crypto only) holds a series of FIPS 140 validations, the most recent #5244 (2024-08-05). `FIPS.md` states "BoringSSL as a whole is not FIPS validated". ASSUMED-src: `crypto/fipsmodule/FIPS.md`.
+* Field arithmetic from fiat-crypto, which is machine-checked (`third_party/fiat`).
+* Continuous fuzzing (`FUZZING.md`, OSS-Fuzz) and Wycheproof vectors in-tree.
+* Inherited OpenSSL lineage, heavily reworked; Chrome and Android ship it, so it gets very wide real-world exposure.
+
+*Licence.* Apache-2.0 since commit `33d1049` (2025-02-03, "Switch the license to Apache 2.0, matching OpenSSL upstream"). Compatible with MPL-2.0 and GPL-3.0 code. ASSUMED-src: `LICENSE`.
+
+*Build complexity from Zig.* Moderate.
+
+* `libssl` is C++ and needs a C++17 compiler and runtime (`BUILDING.md`). Zig provides libc++ (`linkLibCpp`).
+* Consumers don't need Go or Perl: the asm is pre-generated, and `gen/sources.json` lists every source set, so `build.zig` can compile it directly with no CMake. TESTED: `zig build install` with `src/interface/ffi/build.zig` (Zig 0.17.0, x86_64-linux, 3m13s cold build, asm included).
+* There is no stable API, so the pin must be explicit, and every update is a review-and-retest event.
+
+*Features* (ASSUMED-src in `include/openssl/ssl.h`):
+
+* TLS 1.3 with ALPN (`SSL_set_alpn_protos`).
+* A QUIC-TLS API (`SSL_set_quic_method`, `SSL_set_quic_transport_params`). This API originated here and is what quiche, ngtcp2 and others use.
+* Custom verification (`SSL_set_custom_verify`) with chain access (`SSL_get0_peer_certificates`).
+* Hostname checking (`SSL_set1_host`).
+* Client certificates.
+
+*Verdict:* meets every functional requirement under a permissive licence. The price is no stability promise, no backports, and C++ in the build.
+
+[[3-mbed-tls]]
+=== 3. Mbed TLS
+
+*Maintenance.* Active, under TrustedFirmware.
+
+* 4.0 (2025-10-15) split the crypto out into *TF-PSA-Crypto* (submodule) and removed most legacy `mbedtls_*` crypto APIs in favour of PSA.
+* LTS policy: 3.6 is supported to March 2027, and 4.1 to March 2029.
+* API is stable within a major version, and ABI is stable within LTS.
+
+ASSUMED-src: `BRANCHES.md`, `ChangeLog` at `v4.2.0`.
+
+*Audit history.* Calif audited 3.6.2 for the Google Security Team in 2025:
+
+* one High finding (CVE-2025-47917, X.509 name parsing memory management);
+* four Medium findings;
+* all fixed in 3.6.4.
+
+ASSUMED-ext: Calif blog post. 12 unique CVE IDs are referenced in the 4.0–4.2 changelog window (ASSUMED-src: `ChangeLog`).
+
+*Licence.* Apache-2.0 OR GPL-2.0-or-later. ASSUMED-src: `LICENSE`.
+
+*Build complexity from Zig.* Easy for 3.6: C99, generated files are committed at the tag. 4.x is harder. Its git tags omit generated sources (`error.c`, PSA driver wrappers) and need Python plus Jinja to produce them, or you use the release tarball. It also has two submodules (`framework`, `tf-psa-crypto`). ASSUMED-src: `README.md` at `v4.2.0` and a listing of `library/`.
+
+*Features.*
+
+* TLS 1.3, ALPN, client certificates and a verify callback are all present.
+* It deliberately fails closed if no hostname is set (`MBEDTLS_ERR_SSL_CERTIFICATE_VERIFICATION_WITHOUT_HOSTNAME`), which is good design.
+* *No QUIC-TLS API*: no "quic" symbol anywhere in `include/` or `library/` at v4.2.0 (ASSUMED-src by grep). DoQ would need a second TLS library.
+
+*Verdict:* the best stability and governance story, and an easy build for 3.6. It *fails DoQ*. It is the right choice only if DoQ is dropped or moved to a separate component.
+
+[[4-wolfssl]]
+=== 4. wolfSSL
+
+*Maintenance.* Active and commercially backed, with a long-lived stable API. Releases in 2026: 5.9.0 (Mar), 5.9.1 (Apr), 5.9.2 (Jun) and 5.9.4 (Sep). ASSUMED-src: `ChangeLog.md`.
+
+*Audit history.*
+
+* wolfCrypt holds FIPS 140-3 validation (for example CMVP #4718). ASSUMED: NIST CMVP listing and vendor announcement.
+* It gets substantial independent research, including Trail of Bits' tlspuffin work (four CVEs, 2022–23, up to a stack overflow in TLS 1.3 resumption).
+* Its changelog lists *92 unique CVE IDs* fixed in releases 5.8.2 through 5.9.4 (ASSUMED-src: count of `ChangeLog.md`). That reflects active disclosure as much as defect density, but it is a real patch-cadence burden.
+
+*Licence.* *GPL-3.0* since 5.8.2 (2025-07-17; "wolfSSL is now GPLv3 instead of GPLv2"), with a short GPLv2 exception list, or commercial. ASSUMED-src: `LICENSING`, `ChangeLog.md`. For an MPL-2.0 estate, distributed binaries that link wolfSSL become GPL-3.0 combined works. MPL-2.0 §3.3 permits that, but it changes what downstream users receive.
+
+*Build complexity from Zig.* Easy: plain C, configured through `user_settings.h`, 38 + 110 source files.
+
+*Features.* TLS 1.3, ALPN, QUIC-TLS (`wolfssl/quic.h`, `wolfSSL_set_quic_method`; ngtcp2 has a wolfSSL backend), verify callbacks and client certificates.
+
+*Verdict:* meets every functional requirement and has the best API stability of the two that do. Licence is the obstacle.
+
+'''''
+
+=== Recommendation: BoringSSL, pinned, behind a narrow wrapper
+
+*Reasons*
+
+[arabic]
+. It is one of only two candidates that cover TLS 1.3, ALPN, a QUIC-TLS interface, custom (TOFU) verification and client certificates. One library serves DoH, DoQ and Gemini, so there is one thing to review, patch and fuzz.
+. Apache-2.0 sits cleanly with MPL-2.0 code. wolfSSL would turn distributed binaries into GPL-3.0 works.
+. Exposure: Chrome and Android run it on billions of devices. Combined with fuzzing, Wycheproof and verified field arithmetic, that is strong assurance by deployment, even without a published audit.
+. It builds from `build.zig` with no CMake, Go or Perl, so cross-compilation keeps working through Zig.
+
+*Risks, and how this repository treats them*
+
+[cols=",",options="header",]
+|===
+|Risk |Treatment
+|No API/ABI stability; "not intended for general use" |Exact pin in `src/interface/ffi/build.zig.zon` (tag plus content hash). `src/interface/ffi/src/c.zig` declares 58 functions by hand (the wrapper calls 53; the rest serve the test server), all over opaque handle types. `src/interface/ffi/tests/ffi_drift.zig` cross-checks their shapes, nullability, handle identity and constants against `translate-c` output, so shape drift fails the build (self-test: `src/interface/ffi/scripts/ffi-drift-selftest.sh`). Ownership semantics are not checked mechanically.
+|No backported security fixes on tags |Updating is the only patch route, so schedule it (monthly, alongside estate review) and re-run the suite. *Owner action.*
+|C++ runtime dependency (libc++) |Accepted. Statically linked by Zig.
+|No public whole-library audit |Flagged for external review in `docs/security/TLS-WRAPPER-SECURITY.adoc` §4.
+|Static linking means you own the CVE response |Same as the pin item; no distro will patch it for you.
+|===
+
+*Alternatives if the constraints change*
+
+* *DoQ dropped:* Mbed TLS 3.6/4.1 LTS has the better stability and audit story.
+* *GPL-3.0 acceptable, or a commercial licence bought:* wolfSSL has a stable API and the same feature coverage.
+* *Not in the brief, but worth a look:* AWS-LC (BoringSSL-derived, Apache-2.0 / ISC). It keeps the BoringSSL API but commits to stability and has SAW-verified primitives. If BoringSSL churn turns out to hurt, moving to AWS-LC would change very little in this wrapper. OPEN: not evaluated here.
+* *Zig std:* reassess when #35877 is fixed and ALPN, client certificates, peer-certificate access and a QUIC interface land. Not before.
+
+=== Sources
+
+* BoringSSL: `README.md`, `INCORPORATING.md`, `BREAKING-CHANGES.md`, `BUILDING.md`, `include/openssl/ssl.h`, `gen/sources.json`, `LICENSE` at tag `0.20260929.0`; https://boringssl.googlesource.com/boringssl/+/main/crypto/fipsmodule/FIPS.md[FIPS.md]; https://boringssl.googlesource.com/boringssl/+/33d1049b1f730d2725bb09b2256fd5fe4c46b17e[licence switch commit].
+* Mbed TLS: `BRANCHES.md`, `README.md`, `LICENSE`, `ChangeLog`, `include/mbedtls/ssl.h` at `v4.2.0` / `v3.6.7`; https://blog.calif.io/p/partnering-with-google-to-strengthen[Calif audit write-up].
+* wolfSSL: `LICENSING`, `ChangeLog.md`, `wolfssl/quic.h` at `v5.9.4-stable`; https://www.wolfssl.com/?p=46088[5.8.2 release notes]; https://blog.trailofbits.com/2023/01/12/wolfssl-vulnerabilities-tlspuffin-fuzzing-ssh/[Trail of Bits&#44; "Keeping the wolves out of wolfSSL"]; https://csrc.nist.gov/projects/cryptographic-module-validation-program/certificate/4718[CMVP #4718].
+* Zig: `lib/std/crypto/tls/Client.zig`, `lib/std/crypto/Certificate.zig`, `lib/std/crypto/Certificate/Bundle.zig` in 0.17.0; https://codeberg.org/ziglang/zig/issues/35877[#35877], https://codeberg.org/ziglang/zig/issues/36156[#36156], https://codeberg.org/ziglang/zig/issues/36288[#36288].
