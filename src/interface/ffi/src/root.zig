@@ -346,8 +346,7 @@ fn requireBlockingSocket(fd: std.posix.fd_t, reject_nonblocking: bool) Error!voi
     if (flags < 0) return error.TransportError;
     var nonblocking: std.posix.O = .{};
     nonblocking.NONBLOCK = true;
-    const bits = @as(std.meta.Int(.unsigned, @bitSizeOf(std.posix.O)), @bitCast(nonblocking));
-    const nonblock: c_int = @intCast(bits);
+    const nonblock: c_int = @bitCast(nonblocking);
     if (flags & nonblock != 0) {
         if (reject_nonblocking) return error.NonBlockingSocket;
         // connect() owns this new descriptor, so normalizing it cannot change

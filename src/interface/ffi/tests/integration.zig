@@ -181,8 +181,7 @@ test "fromFd rejects Linux nonblocking descriptors before TLS setup" {
     try std.testing.expect(flags >= 0);
     var nonblocking: std.posix.O = .{};
     nonblocking.NONBLOCK = true;
-    const bits = @as(std.meta.Int(.unsigned, @bitSizeOf(std.posix.O)), @bitCast(nonblocking));
-    const nonblock: c_int = @intCast(bits);
+    const nonblock: c_int = @bitCast(nonblocking);
     try std.testing.expectEqual(@as(c_int, 0), fcntl(fd, std.posix.F.SETFL, flags | nonblock));
     try std.testing.expectError(error.NonBlockingSocket, tls.fromFd(stream.socket.handle, .{
         .server_name = "localhost",
