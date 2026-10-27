@@ -50,7 +50,7 @@ Stop if the checksum does not match. Do not substitute another Zig version.
 [source,bash]
 ----
 cd src/interface/ffi
-zig build test --summary all        # expect 37/37; the first build compiles BoringSSL (minutes)
+zig build test --summary all        # report the exact test summary; first build compiles BoringSSL (minutes)
 ./scripts/mutation-check.sh         # expect "all mutations behaved as expected"
 ./scripts/ffi-drift-selftest.sh     # expect "all injected drifts caught"
 ----
@@ -68,12 +68,13 @@ examples in `README.adoc` before choosing a `Trust` mode.
 
 == Privacy
 
-Setting up and testing zig-boringtls sends no telemetry. The only outbound
-requests are:
+Setting up and testing zig-boringtls sends no telemetry or locally generated
+test material. Setup makes expected upstream requests:
 
-* the Zig download from ziglang.org;
-* the BoringSSL tarball from GitHub, which the Zig package manager verifies
-  against the content hash in `build.zig.zon`.
+* clone the repository from GitHub;
+* download Zig from ziglang.org;
+* fetch the BoringSSL tarball from GitHub, which the Zig package manager
+  verifies against the content hash in `build.zig.zon`.
 
 The tests run entirely over loopback. Their certificates and private keys are
 generated into the build cache on every run and never leave the machine.

@@ -5,8 +5,9 @@
 == Current status
 
 Incubating (deed `(status)`), maturity experimental. The wrapper, its
-tests, the FFI drift check and the mutation check exist and pass locally;
-see `README.adoc` §Status for what is TESTED versus OPEN.
+tests, the FFI drift check and the mutation check exist; a passing CI run is
+required before treating them as verified. See `README.adoc` §Status for what
+is TESTED versus OPEN.
 
 == Milestones
 

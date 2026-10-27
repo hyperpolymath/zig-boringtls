@@ -16,7 +16,7 @@
 # compose*, stapeln/) is not used by this repository.
 
 # Wolfi base, pinned by digest (resolve a newer one deliberately).
-FROM cgr.dev/chainguard/wolfi-base@sha256:256c88bb066424045021090932d50be93c8e3f2ce3586707702a401b146f3e43
+FROM cgr.dev/chainguard/wolfi-base:latest@sha256:256c88bb066424045021090932d50be93c8e3f2ce3586707702a401b146f3e43
 
 ARG ZIG_VERSION=0.17.0
 ARG ZIG_SHA256=1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026

@@ -164,8 +164,6 @@ fn dial(srv: *TestServer, cfg: tls.Config, conn_out: *tls.Connection) tls.Error!
     };
 }
 
-extern "c" fn fcntl(fd: c_int, cmd: c_int, ...) c_int;
-
 test "fromFd rejects Linux nonblocking descriptors before TLS setup" {
     if (@import("builtin").os.tag != .linux) return error.SkipZigTest;
     var srv: TestServer = undefined;
@@ -176,10 +174,12 @@ test "fromFd rejects Linux nonblocking descriptors before TLS setup" {
     defer {
         if (stream_open) stream.close(io);
     }
-    const fd: c_int = @intCast(stream.socket.handle);
-    const flags = fcntl(fd, 3); // F_GETFL
-    try std.testing.expect(flags >= 0);
-    try std.testing.expectEqual(@as(c_int, 0), fcntl(fd, 4, flags | 0x800)); // F_SETFL | O_NONBLOCK
+    const flags = try std.posix.fcntl(stream.socket.handle, std.posix.F.GETFL, 0);
+    var nonblocking: std.posix.O = .{};
+    nonblocking.NONBLOCK = true;
+    const bits = @as(std.meta.Int(.unsigned, @bitSizeOf(std.posix.O)), @bitCast(nonblocking));
+    const nonblock: usize = @intCast(bits);
+    try std.testing.expectEqual(@as(usize, 0), try std.posix.fcntl(stream.socket.handle, std.posix.F.SETFL, flags | nonblock));
     try std.testing.expectError(error.NonBlockingSocket, tls.fromFd(stream.socket.handle, .{
         .server_name = "localhost",
         .trust = webpki(default_ca),
@@ -470,6 +470,15 @@ test "tofu: pin is of the key, so a CA-issued cert can also be pinned" {
 // ---------------------------------------------------------------------------
 // Client certificates
 // ---------------------------------------------------------------------------
+
+test "TOFU first use cannot offer a client identity before pin acknowledgement" {
+    try std.testing.expectError(error.ClientIdentityRequiresKnownPin, tls.fromFd(-1, .{
+        .server_name = "localhost",
+        .trust = tofu(null),
+        .client_identity = .{ .chain_pem_file = fx("client.pem"), .key_pem_file = fx("client.key") },
+        .io_timeout_ms = 0,
+    }));
+}
 
 test "client cert: presented when configured and accepted by the server" {
     var srv: TestServer = undefined;

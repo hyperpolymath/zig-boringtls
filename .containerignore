@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: MPL-2.0
 #
-# Build-context exclusions for the OCI image build (Tier A).
-# Honoured by podman, nerdctl and docker (all read .containerignore;
-# docker also reads .dockerignore — this file is the portable name).
+# Build-context exclusions for the repository-root OCI image build.
+# Keep this at the context root: the documented `podman build ... .` command
+# does not discover ignore files beside a nested Containerfile.
 #
 # Keeping the context lean speeds builds and prevents secrets, VCS
 # history and local cruft from leaking into image layers.
@@ -36,18 +36,17 @@ node_modules/
 dist/
 result/
 
-# Docs, tests, examples (not needed in the runtime image)
+# Docs and examples are outside the copied Zig package.
 docs/
 build/docs-seed/
 benches/
 examples/
-tests/
 
 # The container tooling itself (don't recurse the build files into the image)
 build/container/stapeln/
 build/container/compose*.yaml
 build/container/compose*.toml
-build/container/.containerignore
+.containerignore
 build/container/README.adoc
 
 # Secrets and environment files — never ship these

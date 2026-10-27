@@ -71,8 +71,11 @@ mutate "MISUSE: permit nonblocking fromFd" killed \
 mutate "TOFU first-use exposed as an ordinary Session" killed \
   'break :blk .{ .first_use = @ptrCast(pending) };' \
   'break :blk .{ .established = pending.session.? };'
+mutate "TOFU first use sends client identity before acknowledgement" killed \
+  'if (tofu.known_pin == null) return error.ClientIdentityRequiresKnownPin,' \
+  'if (false) return error.ClientIdentityRequiresKnownPin,'
 mutate "certificate DN truncation reported as success" killed \
-  'if (text.len >= capacity - 1) return error.BufferTooSmall;' \
+  'if (text.len > out.len) return error.BufferTooSmall;' \
   'if (false) return error.BufferTooSmall;'
 mutate "MISUSE-11 default (ALL) TLS 1.2 cipher list" killed \
   'if (c.SSL_CTX_set_strict_cipher_list(ctx, tls12_ciphers) != 1) return error.LibraryFailure;' ''

@@ -54,6 +54,8 @@ In `tofu` mode it replaces BoringSSL's chain verification entirely with its own 
 * the SHA-256 of its DER SubjectPublicKeyInfo equals the stored pin, or no pin is stored yet.
 +
 It does not check the self-signature, the issuer, key usage or EKU. That is deliberate: the pin is the trust anchor.
++
+A TOFU configuration with no known pin cannot also configure a client identity: the wrapper rejects it before the TLS handshake, so a first-contact server cannot elicit a client certificate before pin acknowledgement.
 . *Error classification.* It maps BoringSSL's results to Zig errors. A wrong mapping can mislabel a failure, but is designed never to turn a failure into a success. `handshake()` only returns a `HandshakeResult` when `SSL_connect` returned 1. Then:
 * in webpki mode, `SSL_get_verify_result` must be `X509_V_OK`;
 * in tofu mode, the callback must have recorded a positive decision.
@@ -66,7 +68,7 @@ It does not check the self-signature, the issuer, key usage or EKU. That is deli
 [[3-every-place-the-wrapper-could-misuse-boringssl]]
 == 3. Every place the wrapper could misuse BoringSSL
 
-Each entry gives the misuse, what the wrapper does instead, and the evidence. "Mutation" means `src/interface/ffi/scripts/mutation-check.sh` re-introduces the misuse and the test suite fails. The original mutation outcomes were tested on 2026-10-13; the new regression mutations for first-use gating, nonblocking descriptors, bare `0x` labels and DN truncation are pending the updated Zig CI run. Rows 1–11 are marked `MISUSE-n` in `src/interface/ffi/src/root.zig`; rows 12–18 are API-usage rules for callers, or properties of the test setup.
+Each entry gives the misuse, what the wrapper does instead, and the evidence. "Mutation" means `src/interface/ffi/scripts/mutation-check.sh` re-introduces the misuse and the test suite fails. The original mutation outcomes were tested on 2026-10-13; the new regression mutations for first-use gating, client-identity gating, nonblocking descriptors, bare `0x` labels and DN truncation are pending the updated Zig CI run. Rows 1–11 are marked `MISUSE-n` in `src/interface/ffi/src/root.zig`; rows 12–18 are API-usage rules for callers, or properties of the test setup.
 
 [cols=",,,",options="header",]
 |===
@@ -86,7 +88,7 @@ Each entry gives the misuse, what the wrapper does instead, and the evidence. "M
 |11 |Leaving the TLS 1.2 cipher list at BoringSSL's default `ALL`, so a server can choose static-RSA key exchange (no forward secrecy, no handshake signature). |`SSL_CTX_set_strict_cipher_list("ECDHE+AESGCM:ECDHE+CHACHA20")`. |TESTED (`TLS 1.2: static-RSA … never accepted`, mutation)
 |12 |Using a `PeerCertificate` or `alpn()` slice after `close()`. Both borrow BoringSSL memory. |Documented only. Zig cannot enforce it. |DESIGNED
 |13 |Copying a `Session` or `Connection` by value, then closing both copies (double free). Calling `handshake()` on a stale copy. |`handshake()` on the _same_ `Connection` twice returns `AlreadyConsumed`, which is TESTED. Copies are not detectable: Zig has no affine or linear types. |OPEN
-|14 |`fromFd`: the caller closes or reuses the fd while the Session lives, so BoringSSL writes into an unrelated descriptor. |Documented ownership rule only. Nonblocking descriptors are rejected before TLS setup; only Linux `O_NONBLOCK` is currently detected. |REGRESSION TEST ADDED (Linux); updated Zig CI pending; other POSIX target support OPEN.
+|14 |`fromFd`: the caller closes or reuses the fd while the Session lives, so BoringSSL writes into an unrelated descriptor. |Documented ownership rule only. Nonblocking descriptors are rejected before TLS setup using the target's `std.posix.O` flag layout; `connect` normalizes its newly owned fd. |REGRESSION TEST ADDED (Linux); updated Zig CI pending; other POSIX target coverage OPEN.
 |15 |Continuing to use a Session after `error.Timeout`. BoringSSL may be mid-record. |Documented: treat `Timeout` as fatal and close. `fromFd` rejects nonblocking fds so WANT_READ/WANT_WRITE is not mislabeled as timeout for them. |DESIGNED
 |16 |`io_timeout_ms = 0` blocks forever on a stalled peer (DoS). |Default is 30 s. Zero is allowed but documented. |ASSUMED-src
 |17 |Hand-written FFI declarations drifting from the headers when the pin moves. |`src/interface/ffi/tests/ffi_drift.zig` compares every declaration and constant in `src/interface/ffi/src/c.zig` with translate-c output: arity, varargs, callconv, integer shape, const-ness, nullability, `[*c]` narrowing, and handle identity. |TESTED (`src/interface/ffi/scripts/ffi-drift-selftest.sh`: 8 injected drifts, all caught). *Not checked:* ownership (`get0`/`get1`, who frees), and libc `close`/`time` declared in `root.zig` (`time` uses `std.c.time_t`, so it stays correct on 32-bit targets).

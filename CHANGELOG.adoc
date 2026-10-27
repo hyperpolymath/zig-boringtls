@@ -26,6 +26,6 @@ This repository was minted from `hyperpolymath/rsr-template-repo` at
 
 ==== Fixed
 
-* TOFU first use now returns an opaque acknowledgement-gated handle; nonblocking Linux descriptors passed to `fromFd` are rejected; certificate DN truncation is reported.
+* TOFU first use now returns an opaque acknowledgement-gated handle, and cannot offer a client identity before a known pin; nonblocking descriptors passed to `fromFd` are rejected; certificate DN truncation is reported.
 * Accept valid bare `0x` DNS labels; harden shell checks and restrict Zig downloads to HTTPS redirects.
 * Update the DEED canon pin to the current published `canon.lock` identity.

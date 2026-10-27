@@ -34,6 +34,8 @@ jobs:
         working-directory: src/interface/ffi
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
       - name: Install Zig (SHA-256 verified)
         working-directory: ${{ runner.temp }}
         run: |
@@ -49,9 +51,25 @@ jobs:
       - name: Format check
         run: zig fmt --check .
       - name: Test (Debug, UBSan-instrumented C)
-        run: zig build test --summary all
+        shell: bash
+        run: |
+          set -o pipefail
+          log="${RUNNER_TEMP}/zig-debug-test.log"
+          if ! zig build test --summary all 2>&1 | tee "$log"; then
+            details="$(tail -n 80 "$log" | tr '\n' ' ' | cut -c1-10000)"
+            echo "::error title=Zig Debug test details::$details"
+            exit 1
+          fi
       - name: Test (ReleaseSafe)
-        run: zig build test -Doptimize=ReleaseSafe --summary all
+        shell: bash
+        run: |
+          set -o pipefail
+          log="${RUNNER_TEMP}/zig-release-test.log"
+          if ! zig build test -Doptimize=ReleaseSafe --summary all 2>&1 | tee "$log"; then
+            details="$(tail -n 80 "$log" | tr '\n' ' ' | cut -c1-10000)"
+            echo "::error title=Zig ReleaseSafe test details::$details"
+            exit 1
+          fi
       - name: FFI drift self-test
         run: ./scripts/ffi-drift-selftest.sh
       - name: Mutation check

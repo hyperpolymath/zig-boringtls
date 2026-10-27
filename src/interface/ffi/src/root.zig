@@ -30,6 +30,7 @@ pub const Error = error{
     InvalidAlpn,
     RootsLoadFailed,
     ClientIdentityLoadFailed,
+    ClientIdentityRequiresKnownPin,
     OutOfMemory,
     LibraryFailure, // BoringSSL allocation/setup call returned failure
     // transport
@@ -341,17 +342,17 @@ fn fromFdInner(fd: std.posix.fd_t, owns_fd: bool, reject_nonblocking: bool, conf
 extern "c" fn fcntl(fd: c_int, cmd: c_int, ...) c_int;
 
 fn requireBlockingSocket(fd: std.posix.fd_t, reject_nonblocking: bool) Error!void {
-    const flags = fcntl(@intCast(fd), 3); // F_GETFL is 3 on supported POSIX targets.
+    const flags = fcntl(@intCast(fd), std.posix.F.GETFL, 0);
     if (flags < 0) return error.TransportError;
-    const nonblock: c_int = switch (@import("builtin").os.tag) {
-        .linux => 0x800,
-        else => return error.TransportError,
-    };
+    var nonblocking: std.posix.O = .{};
+    nonblocking.NONBLOCK = true;
+    const bits = @as(std.meta.Int(.unsigned, @bitSizeOf(std.posix.O)), @bitCast(nonblocking));
+    const nonblock: c_int = @intCast(bits);
     if (flags & nonblock != 0) {
         if (reject_nonblocking) return error.NonBlockingSocket;
         // connect() owns this new descriptor, so normalizing it cannot change
         // another owner's view of an open-file description.
-        if (fcntl(@intCast(fd), 4, flags & ~nonblock) < 0) return error.TransportError; // F_SETFL
+        if (fcntl(@intCast(fd), std.posix.F.SETFL, flags & ~nonblock) < 0) return error.TransportError;
     }
 }
 
@@ -362,6 +363,12 @@ fn configure(conn: *Connection, config: Config, reject_nonblocking: bool) Error!
     // (IP SANs need X509_VERIFY_PARAM_set1_ip), and RFC 6066 forbids IPs in
     // SNI. IP-addressed servers are out of scope, so reject them explicitly.
     try validateServerName(config.server_name);
+    if (config.client_identity != null) {
+        switch (config.trust) {
+            .tofu => |tofu| if (tofu.known_pin == null) return error.ClientIdentityRequiresKnownPin,
+            .webpki => {},
+        }
+    }
     var name_z: [std.Io.net.HostName.max_len + 1]u8 = undefined;
     @memcpy(name_z[0..config.server_name.len], config.server_name);
     name_z[config.server_name.len] = 0;
@@ -829,15 +836,15 @@ pub const PeerCertificate = struct {
             .subject => c.X509_get_subject_name(x),
             .issuer => c.X509_get_issuer_name(x),
         } orelse return error.CertificateInvalid;
-        const capacity: usize = @min(out.len, @as(usize, @intCast(std.math.maxInt(c_int))));
-        const r = c.X509_NAME_oneline(name, out.ptr, @intCast(capacity));
-        if (r == null) return error.CertificateInvalid;
-        const text = std.mem.sliceTo(out, 0);
-        // X509_NAME_oneline truncates at size - 1 but still returns `buf`.
-        // Conservatively reject a full buffer too: an exactly-full result is
-        // indistinguishable from truncation through this legacy API.
-        if (text.len >= capacity - 1) return error.BufferTooSmall;
-        return text;
+        // The caller-buffer form of X509_NAME_oneline can silently omit whole
+        // trailing entries. Its allocating form grows a complete result.
+        const full = c.X509_NAME_oneline(name, null, 0);
+        if (full == null) return error.CertificateInvalid;
+        defer c.OPENSSL_free(full);
+        const text = std.mem.span(full);
+        if (text.len > out.len) return error.BufferTooSmall;
+        @memcpy(out[0..text.len], text);
+        return out[0..text.len];
     }
 };
 

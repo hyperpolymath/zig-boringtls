@@ -16,7 +16,7 @@ or delete — the rest.
 | Tier | What | Why
 
 | *A — OCI standard*
-| `Containerfile`, `.containerignore`
+| `Containerfile`, repository-root `.containerignore`
 | A plain, multi-stage OCI image on https://www.chainguard.dev/[Chainguard]
   Wolfi. Builds with any OCI engine. No dependency on tiers B or C.
 
@@ -51,9 +51,10 @@ The container engine is *auto-detected* (`podman`, then `nerdctl`, then
   runtime image. Engine-agnostic. Carries the stapeln files only as labels,
   so it has no hard dependency on tier C.
 
-| `.containerignore`
-| Build-context exclusions (honoured by podman/nerdctl/docker). Keeps `.git`,
-  secrets, docs, tests and build caches out of image layers.
+| Repository-root `.containerignore`
+| Build-context exclusions for commands using `.` as the context. Keeps `.git`,
+  secrets, docs and build caches out of image layers while retaining source and
+  test fixtures needed by the zig-boringtls build-and-test image.
 
 | `compose.yaml`
 | Portable compose-spec stack: app + `rokur` + `svalinn`. Use with
