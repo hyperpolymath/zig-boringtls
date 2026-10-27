@@ -342,7 +342,7 @@ fn fromFdInner(fd: std.posix.fd_t, owns_fd: bool, reject_nonblocking: bool, conf
 extern "c" fn fcntl(fd: c_int, cmd: c_int, ...) c_int;
 
 fn requireBlockingSocket(fd: std.posix.fd_t, reject_nonblocking: bool) Error!void {
-    const flags = fcntl(@intCast(fd), std.posix.F.GETFL, 0);
+    const flags = fcntl(@intCast(fd), std.posix.F.GETFL, @as(c_int, 0));
     if (flags < 0) return error.TransportError;
     var nonblocking: std.posix.O = .{};
     nonblocking.NONBLOCK = true;

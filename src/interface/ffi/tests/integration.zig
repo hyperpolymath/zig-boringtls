@@ -164,6 +164,8 @@ fn dial(srv: *TestServer, cfg: tls.Config, conn_out: *tls.Connection) tls.Error!
     };
 }
 
+extern "c" fn fcntl(fd: c_int, cmd: c_int, ...) c_int;
+
 test "fromFd rejects Linux nonblocking descriptors before TLS setup" {
     if (@import("builtin").os.tag != .linux) return error.SkipZigTest;
     var srv: TestServer = undefined;
@@ -174,12 +176,14 @@ test "fromFd rejects Linux nonblocking descriptors before TLS setup" {
     defer {
         if (stream_open) stream.close(io);
     }
-    const flags = try std.posix.fcntl(stream.socket.handle, std.posix.F.GETFL, 0);
+    const fd: c_int = @intCast(stream.socket.handle);
+    const flags = fcntl(fd, std.posix.F.GETFL, @as(c_int, 0));
+    try std.testing.expect(flags >= 0);
     var nonblocking: std.posix.O = .{};
     nonblocking.NONBLOCK = true;
     const bits = @as(std.meta.Int(.unsigned, @bitSizeOf(std.posix.O)), @bitCast(nonblocking));
-    const nonblock: usize = @intCast(bits);
-    try std.testing.expectEqual(@as(usize, 0), try std.posix.fcntl(stream.socket.handle, std.posix.F.SETFL, flags | nonblock));
+    const nonblock: c_int = @intCast(bits);
+    try std.testing.expectEqual(@as(c_int, 0), fcntl(fd, std.posix.F.SETFL, flags | nonblock));
     try std.testing.expectError(error.NonBlockingSocket, tls.fromFd(stream.socket.handle, .{
         .server_name = "localhost",
         .trust = webpki(default_ca),
