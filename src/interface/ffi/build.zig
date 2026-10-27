@@ -27,9 +27,61 @@ pub fn build(b: *std.Build) void {
     // ---- tests -------------------------------------------------------------
     const test_step = b.step("test", "Run all tests");
 
-    // Build smoke test: links BoringSSL and calls into it.
+    // Unit tests inside src/ (pure-Zig parts: pin parsing, error mapping).
     const unit = b.addTest(.{ .root_module = mod });
     test_step.dependOn(&b.addRunArtifact(unit).step);
+
+    // Integration tests: real handshakes against an in-process BoringSSL server.
+    const it_mod = b.createModule(.{
+        .root_source_file = b.path("tests/integration.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+        .imports = &.{.{ .name = "boringtls", .module = mod }},
+    });
+    // Fixtures (CA, leaves, private keys, pins) are generated per build by
+    // scripts/gen-fixtures.sh into the cache, never committed. The helper
+    // that writes the hostile OCTET-STRING-CN certificate is built first.
+    const patch_exe = b.addExecutable(.{
+        .name = "patch-cn-tag",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("scripts/patch-cn-tag.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const gen = b.addSystemCommand(&.{"bash"});
+    gen.addFileArg(b.path("scripts/gen-fixtures.sh"));
+    const fixtures_dir = gen.addOutputDirectoryArg("fixtures");
+    gen.addArtifactArg(patch_exe);
+    const fx = b.addOptions();
+    fx.addOptionPathDirectory("dir", fixtures_dir);
+    it_mod.addImport("fixtures", fx.createModule());
+    const it = b.addTest(.{ .root_module = it_mod });
+    const run_it = b.addRunArtifact(it);
+    run_it.has_side_effects = true; // network + wall-clock dependent; never cache
+    test_step.dependOn(&run_it.step);
+
+    // FFI drift check: compare every hand-written `extern fn` in src/c.zig
+    // against the signature translate-c derives from the pinned headers.
+    const tc = b.addTranslateC(.{
+        .root_source_file = b.path("tests/ffi_headers.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    tc.addIncludePath(boringssl.include);
+    const ffi_mod = b.createModule(.{
+        .root_source_file = b.path("tests/ffi_drift.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+        .imports = &.{
+            .{ .name = "translated", .module = tc.createModule() },
+            .{ .name = "boringtls", .module = mod },
+        },
+    });
+    const ffi = b.addTest(.{ .root_module = ffi_mod });
+    test_step.dependOn(&b.addRunArtifact(ffi).step);
 }
 
 const BoringSsl = struct {
