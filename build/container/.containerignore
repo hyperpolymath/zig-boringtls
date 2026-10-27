@@ -57,3 +57,8 @@ build/container/README.adoc
 *.pem
 *.key
 secrets/
+
+# Zig caches and package dirs at any depth (the wrapper lives in src/interface/ffi/)
+**/.zig-cache/
+**/zig-out/
+**/zig-pkg/

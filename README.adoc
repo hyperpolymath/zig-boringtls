@@ -16,119 +16,147 @@ image:https://api.scorecard.dev/projects/github.com/hyperpolymath/zig-boringtls/
 image:https://sonarcloud.io/api/project_badges/measure?project=hyperpolymath_zig-boringtls&metric=alert_status[SonarQube Quality Gate,link="https://sonarcloud.io/summary/new_code?id=hyperpolymath_zig-boringtls"]
 image:https://archive.softwareheritage.org/badge/origin/https://github.com/hyperpolymath/zig-boringtls/[Archived in Software Heritage,link="https://archive.softwareheritage.org/browse/origin/?origin_url=https://github.com/hyperpolymath/zig-boringtls"]
 
+
 // ── Provenance & ecosystem ──────────────────────────────────────────────────
-image:https://img.shields.io/badge/Idris-Inside-5E5086?logo=idris&logoColor=white[Idris Inside,link="https://github.com/hyperpolymath/proven"]
-image:https://img.shields.io/badge/Zig-Zero--overhead-F7A41D?logo=zig&logoColor=black[Zig Zero-overhead FFI,link="https://github.com/hyperpolymath/typed-wasm"]
-image:https://api.thegreenwebfoundation.org/greencheckimage/github.com[Green Web,link="https://www.thegreenwebfoundation.org/green-web-check/?url=github.com"]
+image:https://img.shields.io/badge/Zig-0.17.0-F7A41D?logo=zig&logoColor=black[Zig 0.17.0]
+image:https://img.shields.io/badge/TLS-BoringSSL_0.20260929.0-4285F4[BoringSSL 0.20260929.0,link="https://boringssl.googlesource.com/boringssl/"]
 
-Thin typestate Zig wrapper over BoringSSL for TLS 1.3 clients: DoH, Gemini TOFU pinning, client certificates
+A thin, typestate Zig wrapper over https://boringssl.googlesource.com/boringssl/[BoringSSL]
+for TLS 1.3 clients: DoH (ALPN `h2`), Gemini (trust-on-first-use pinning) and
+client certificates, with DoQ reachable later through the same library.
 
-[IMPORTANT]
-====
-*This file is a template.* You are reading `README.adoc` from the *RSR template repo*
-(or a freshly-cloned copy of it). Run `just repo-init` to replace every `{{PLACEHOLDER}}`
-token with your project's details, then delete this admonition. Until you do, the
-`{{...}}` markers below are intentional placeholders, not content.
-====
+It is *not* a TLS implementation. The cryptography, protocol and X.509
+validation are BoringSSL's. This code decides which checks run, makes the TOFU
+decision, and turns results into explicit Zig errors.
 
-== What this is
+* *Why BoringSSL:* link:docs/decisions/0004-tls-library-for-zig.adoc[ADR 0004]
+  compares Zig std, BoringSSL, Mbed TLS and wolfSSL, and covers why Zig std
+  (0.17.0) is unsuitable today.
+* *What is and isn't guaranteed:*
+  link:docs/security/TLS-WRAPPER-SECURITY.adoc[the wrapper's security notes].
+  It has not been externally reviewed; please read them before relying on it.
 
-A new repository scaffolded from the *Rhodium Standard Repository (RSR)* template:
-a batteries-included starting point that ships with CI/CD, machine-readable project
-metadata, an AI-agent gatekeeper protocol, a formally-typed ABI/FFI seam
-(Idris2 + Zig), container and reproducible-build scaffolding, and governance
-infrastructure — all wired and passing the RSR validators on day one.
+== Layout
 
-Replace this section with a description of *your* project once initialised.
+The Zig package lives in `src/interface/ffi/` (the estate's FFI location):
 
-== Quick start
+[cols="1,3"]
+|===
+| Path | What lives there
+
+| `src/interface/ffi/build.zig`, `build.zig.zon` | Builds the hash-pinned BoringSSL from its `gen/sources.json` with Zig's toolchain (no CMake, Go or Perl), then the wrapper and tests.
+| `src/interface/ffi/src/root.zig` | The wrapper: `connect`/`fromFd` -> `Connection` -> `handshake()` -> `Session`.
+| `src/interface/ffi/src/c.zig` | Hand-written BoringSSL declarations, checked against `translate-c` by `tests/ffi_drift.zig`.
+| `src/interface/ffi/tests/` | 30 loopback handshakes against an in-process BoringSSL server, plus the FFI drift check.
+| `src/interface/ffi/scripts/` | Per-build fixture generator, mutation check, drift self-test, Zig std probe.
+| `build/container/Containerfile` | Wolfi-based build-and-test image.
+|===
+
+== Requirements
+
+* Zig *0.17.0* exactly (the std and build APIs differ between releases).
+* `bash` and OpenSSL 3.x for the per-build test fixtures.
+* No system OpenSSL headers, CMake, Go or Perl.
+* Tested on x86_64-linux only. Other targets are configured but untested;
+  non-ELF and non-x86_64/aarch64 targets build without assembly.
+
+== Use
+
+[source,zig]
+----
+const tls = @import("boringtls");
+
+// DoH-style: WebPKI chain to the roots you name, plus SAN hostname check.
+var conn = try tls.connect(io, "dns.example", 443, .{
+    .server_name = "dns.example",
+    .trust = .{ .webpki = .{ .roots_pem_file = "/etc/pki/tls/certs/ca-bundle.crt" } },
+    .alpn = &.{ "h2", "http/1.1" },
+});
+var s = try conn.handshake(); // consumes conn; on error, see conn.diagnostic()
+defer s.close() catch {};
+try s.writeAll(request);
+const n = try s.read(&buf); // 0 only on close_notify; error.Truncated otherwise
+----
+
+[source,zig]
+----
+// Gemini-style TOFU: pin = SHA-256 of the leaf's SubjectPublicKeyInfo.
+var conn = try tls.connect(io, host, 1965, .{
+    .server_name = host,
+    .trust = .{ .tofu = .{ .known_pin = store.get(host, 1965) } }, // ?Pin
+    .min_version = .tls1_2, // many capsules still run TLS 1.2 (ECDHE+AEAD only)
+});
+var s = conn.handshake() catch |e| switch (e) {
+    error.PinMismatch => return warnUser(conn.observedPin()), // unauthenticated claim
+    else => return e,
+};
+switch (s.trust()) {
+    .first_use => |pin| try store.put(host, 1965, pin), // persist, or there is no protection next time
+    .pin_matched => {},
+    .webpki_verified => unreachable,
+}
+----
+
+Client certificates: set `.client_identity = .{ .chain_pem_file = ..., .key_pem_file = ... }`.
+Under TLS 1.3 a server that _rejects_ the certificate does so after the
+handshake, so the error appears on the first `read`.
+
+Certificate inspection: `s.peerCertificate()` returns the leaf DER,
+`sha256Fingerprint()`, `spkiPin()`, `validity()`, `subject()`, `issuer()` and
+the chain length.
+
+== Build and test
 
 [source,bash]
 ----
-# 1. Create a repo from this template (or clone it), then from the repo root:
-just repo-init                # interactive bootstrap: fills every {{PLACEHOLDER}}
-
-# 2. See the available tasks:
-just                     # lists all phases (build, test, validate, audit, ...)
-
-# 3. Check the repo still satisfies the RSR shape:
-just validate            # structure + metadata checks
+just test                                   # runs `zig build test` in src/interface/ffi/
+cd src/interface/ffi
+zig build test --summary all                # 37 tests: unit, 30 loopback handshakes, FFI drift
+./scripts/mutation-check.sh                 # re-introduces each misuse; the suite must fail
+./scripts/ffi-drift-selftest.sh             # injects FFI drift; the build must fail
+./scripts/probe-std-basic-constraints.sh    # shows ziglang/zig#35877 in Zig std
+podman build -t zig-boringtls-test -f build/container/Containerfile . \
+  && podman run --rm --network=none zig-boringtls-test
 ----
 
-`just repo-init` prompts for the project name, owner, author, licence contact, and the
-other values listed in `.machine_readable/ai/PLACEHOLDERS.adoc`, substitutes them
-across the tree, validates the result, and (if available) runs the `k9-svc` checks.
+The `Zig CI` workflow runs the format check, Debug and ReleaseSafe tests, the
+drift self-test and the mutation check on every pull request.
+
+`just test` also detects the template's Idris2 ABI scaffold
+(`src/interface/abi.ipkg`) and needs `idris2` for it; that seam is not yet
+filled for this library.
+
+== Status
+
+[cols="3,1"]
+|===
+| Item | Status
+
+| BoringSSL `0.20260929.0` builds from `build.zig` | TESTED (x86_64-linux)
+| 37/37 tests pass (Debug and ReleaseSafe) | TESTED
+| 16 mutations behave as expected (15 killed, 1 redundant-guard survivor) | TESTED
+| BoringSSL's own `crypto_test`/`ssl_test` run against this build | OPEN
+| Interop with OpenSSL, real Gemini servers and DoH endpoints | OPEN
+| DoQ (QUIC): BoringSSL's QUIC API is available but not wrapped | OPEN
+| An Idris2 ABI layer over this Zig surface (`src/interface/Abi/`) | OPEN
+| External security review | OPEN
+|===
 
 [[ai-install]]
 == AI-Assisted Installation (Recommended)
 
-=== Just say it
-
-Say this to any AI assistant that can read a URL and run commands (or give you
-commands to paste):
+Say this to any AI assistant that can read a URL and run commands:
 
 [source,text]
 ----
-Create a new repository from https://github.com/hyperpolymath/zig-boringtls
+Set up https://github.com/hyperpolymath/zig-boringtls and run its tests
 ----
 
-The URL is the key: it leads the assistant to
-link:docs/AI_INSTALLATION_GUIDE.adoc[`docs/AI_INSTALLATION_GUIDE.adoc`], the
-complete step-by-step recipe. The assistant checks your system, installs the
-prerequisites, instantiates the template with `just repo-init`, and verifies the
-result with `just doctor`.
-
-* "Set up zig-boringtls so I can work on the template itself — https://github.com/hyperpolymath/zig-boringtls"
-* `./launcher.sh --ai-setup` (or `just ai-setup`) prints the line and the guide path.
-
-=== What you will be asked
-
-. Your operating system (Linux, macOS, or Windows via WSL2).
-. The new project's name, owner, author and licence contact (the values listed in
-  `.machine_readable/ai/PLACEHOLDERS.adoc`).
-. To confirm the privacy notice below.
-
-=== Privacy and security
-
-[IMPORTANT]
-====
-Setting up zig-boringtls clones this repository and installs its developer
-tools per-user with mise (no administrator rights, nothing sent anywhere).
-`just repo-init` rewrites files only inside the new checkout; it creates no
-remote repository and pushes nothing until you do.
-====
-
-=== The one trap
-
-If you are an AI agent: **do not set `RSR_NON_INTERACTIVE=1`**. It stubs the
-shell builtin `read`, which also disables the loops that perform token
-substitution — the run never terminates and substitutes nothing. Pipe answers to
-stdin instead.
-
-=== Troubleshooting
-
-Run `just doctor`; each FAIL carries a code explained in
-link:docs/SETUP.adoc#troubleshooting[`docs/SETUP.adoc` §Troubleshooting], and
-`just heal` applies the automatic fixes. Prefer to do it yourself? The full
-manual route is link:docs/SETUP.adoc[`docs/SETUP.adoc`]; developers and
-maintainers can brief an AI with `just ai-warmup dev` / `just ai-warmup maintainer`.
-
-== What you get
-
-* *Machine-readable metadata* (`.machine_readable/descriptiles/`) — `STATE`, `META`,
-  `ECOSYSTEM`, `PLAYBOOK`, `AGENTIC`, `NEUROSYM`, `CLADE`, and `anchors/ANCHOR`,
-  in deed, so tools and agents can read the project's state and boundaries.
-* *AI gatekeeper protocol* — `zig-boringtls_chora.deed` (the repo deed) is the
-  universal entry point that tells an AI agent how to work in this repo before it
-  touches anything; it carries the AI allocation policy and the ply directory tree.
-* *Typed ABI/FFI seam* — `src/interface/Abi/` (Idris2 type + layout proofs) over
-  `src/interface/ffi/` (Zig implementation), with generated C headers.
-* *CI/CD* — GitHub Actions for quality, security (CodeQL, Scorecard, secret
-  scanning), multi-forge mirroring, and RSR anti-pattern enforcement.
-* *Supply-chain & reproducibility* — container layering (stapeln), Guix shells,
-  SBOM, and signing hooks.
-* *Governance* — `GOVERNANCE.adoc`, `MAINTAINERS.adoc`, `.github/` community health
-  files, and a release `AUDIT.adoc` gate.
+The URL leads the assistant to
+link:docs/AI_INSTALLATION_GUIDE.adoc[`docs/AI_INSTALLATION_GUIDE.adoc`]: clone,
+install Zig 0.17.0 (checksum-verified), run the test suite, and report.
+Nothing is installed system-wide and nothing is sent anywhere; see the guide's
+privacy section.
 
 == Repository map
 
@@ -136,34 +164,11 @@ The authoritative map is generated, so it cannot drift from the tree:
 link:docs/architecture/REPOSITORY-MAP.adoc[docs/architecture/REPOSITORY-MAP.adoc]
 (regenerate with `just repo-map`; CI fails if it is stale).
 
-The short version:
-
-[cols="1,3"]
-|===
-| Path | What lives there
-
-| `README.adoc`, `CLAUDE.md` | Start here - humans and AI agents respectively.
-| `src/`, `tests/`           | The code and its tests.
-| `docs/`                    | Human documentation, including the full map above.
-| `.machine_readable/`        | Manifests, contractiles and policies that tools read.
-| `build/`, `Justfile`       | Every task runs through `just`; phases live in `build/just/`.
-| `ci/`, `.github/`          | CI configuration; GitHub reads `.github/` and no other path.
-|===
-
-== Where to go next
-
-* link:docs/architecture/REPOSITORY-MAP.adoc[The repository map] — generated; what every directory is for.
-* link:docs/EXPLAINME.adoc[EXPLAINME] — the engineering deep-dive: how the pieces actually work.
-* link:docs/AFFIRMATION.adoc[AFFIRMATION] — the dated, signed honesty snapshot of the repo's true state.
-* link:docs/AUDIT.adoc[AUDIT] — the release audit gate.
-* link:docs/AI_INSTALLATION_GUIDE.adoc[AI installation guide] — for agents instantiating this template.
-* link:.machine_readable/ai/PLACEHOLDERS.adoc[PLACEHOLDERS] — the full placeholder reference.
-
 == Licence
 
 Code, configuration and scripts are link:LICENSE[Mozilla Public License 2.0]
 (`MPL-2.0`); prose documentation is `CC-BY-SA-4.0`. Both texts live in
 `LICENSES/`, and per-file `SPDX-License-Identifier` headers are authoritative.
-The GitHub-detected licence is MPL-2.0 (the root `LICENSE`). Long-term
+BoringSSL is Apache-2.0 and is fetched at build time, not vendored. Long-term
 attribution uses Quantum-Safe Provenance — see
 link:docs/legal/EXHIBIT-B-QUANTUM-SAFE.txt[the Quantum-Safe Provenance exhibit].
