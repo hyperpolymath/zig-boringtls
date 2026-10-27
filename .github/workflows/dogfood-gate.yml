@@ -328,7 +328,7 @@ jobs:
   # The canon<->spine binding. hyperpolymath/standards publishes canon.lock: the
   # released identity of the law, with a sha256 per law artefact. This repo
   # declares the SAME hashes in the `(canon …)` clause of its repo deed,
-  # rsr-template-repo_chora.deed.
+  # zig-boringtls_chora.deed.
   #
   # The pin used to live in a retired .a2ml profile, which D43 froze, so it
   # could not follow canon 2.1.2 and this job went red on every PR (#215). The

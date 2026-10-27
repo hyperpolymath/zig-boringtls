@@ -1,6 +1,6 @@
 K9!
 # SPDX-License-Identifier: MPL-2.0
-# Copyright (c) {{CURRENT_YEAR}} {{AUTHOR}} ({{OWNER}}) <{{AUTHOR_EMAIL}}>
+# Copyright (c) 2026 Jonathan D.A. Jewell (hyperpolymath) <j.d.a.jewell@open.ac.uk>
 #
 # K9 Validator: Methodology Guard
 # Checks that agent work respects methodology constraints declared in the
@@ -56,7 +56,7 @@ let methodology_guard = {
     state_not_template = {
       description = "The ROADMAP journal must not contain template placeholders",
       severity = "warning",
-      # The journal, not the repo deed: a deed names rsr-template-repo in
+      # The journal, not the repo deed: a deed names zig-boringtls in
       # (lineage :instantiated-from) by design, so this pattern would always
       # fire there.
       file = "docs/status/ROADMAP.adoc",
