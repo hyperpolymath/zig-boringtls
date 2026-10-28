@@ -1,0 +1,76 @@
+# This workflow is managed by gh actions-lock.
+# SPDX-License-Identifier: MPL-2.0
+# SPDX-FileCopyrightText: 2026 Jonathan D.A. Jewell
+#
+# Builds the pinned BoringSSL from src/interface/ffi/build.zig and runs the
+# wrapper's tests, its FFI drift self-test and its mutation check.
+# The first `zig build` also verifies the BoringSSL package hash in
+# build.zig.zon against GitHub's tag tarball (Zig refuses a mismatch).
+name: Zig CI
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  ZIG_VERSION: "0.17.0"
+  ZIG_SHA256: "1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026"
+
+jobs:
+  zig-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: src/interface/ffi
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Zig (SHA-256 verified)
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --proto-redir '=https' -fsSLo zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          echo "${ZIG_SHA256}  zig.tar.xz" | sha256sum -c -
+          tar -xf zig.tar.xz
+          echo "${RUNNER_TEMP}/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+      - name: Tool versions (fixtures are generated with the runner's OpenSSL)
+        run: zig version && openssl version
+      - name: Fetch dependencies (verifies the pinned BoringSSL hash)
+        run: zig build --fetch
+      - name: Format check
+        run: zig fmt --check .
+      - name: Test (Debug, UBSan-instrumented C)
+        shell: bash
+        run: |
+          set -o pipefail
+          log="${RUNNER_TEMP}/zig-debug-test.log"
+          if ! zig build test --summary all 2>&1 | tee "$log"; then
+            details="$(tail -n 80 "$log" | tr '\n' ' ' | cut -c1-10000)"
+            echo "::error title=Zig Debug test details::$details"
+            exit 1
+          fi
+      - name: Test (ReleaseSafe)
+        shell: bash
+        run: |
+          set -o pipefail
+          log="${RUNNER_TEMP}/zig-release-test.log"
+          if ! zig build test -Doptimize=ReleaseSafe --summary all 2>&1 | tee "$log"; then
+            details="$(tail -n 80 "$log" | tr '\n' ' ' | cut -c1-10000)"
+            echo "::error title=Zig ReleaseSafe test details::$details"
+            exit 1
+          fi
+      - name: FFI drift self-test
+        run: ./scripts/ffi-drift-selftest.sh
+      - name: Mutation check
+        run: ./scripts/mutation-check.sh

@@ -1,0 +1,156 @@
+// SPDX-License-Identifier: CC-BY-SA-4.0
+// SPDX-FileCopyrightText: 2026 Jonathan D.A. Jewell
+= Security notes for the zig-boringtls wrapper
+:toc:
+
+*This wrapper is not claimed to be secure.* It has had no external review. This document says where its guarantees come from, every place it could misuse BoringSSL, and what needs review before anyone relies on it.
+
+Status tags follow the estate taxonomy:
+
+[cols=",",options="header",]
+|===
+|Tag |Meaning
+|*TESTED* |Executed here; the test or script is named
+|*ASSUMED-src* |Read in the pinned source, not executed
+|*ASSUMED-ext* |Taken from outside documentation
+|*DESIGNED* |Intended, not demonstrated
+|*OPEN* |Not done
+|===
+
+[[1-guarantees-that-come-from-boringssl-not-from-this-code]]
+== 1. Guarantees that come from BoringSSL, not from this code
+
+The wrapper implements none of the following. If BoringSSL gets them wrong, the wrapper is wrong.
+
+* The TLS 1.3 and TLS 1.2 handshake state machines, record protection, key schedule, downgrade protection, alerts, and renegotiation refusal.
+* *All cryptography*, including proof that the server holds the leaf's private key, in _both_ trust modes. In TLS 1.3 that proof is the CertificateVerify signature. In TLS 1.2 it is the ECDHE ServerKeyExchange signature; the wrapper's cipher list (§3 row 11) keeps static-RSA key exchange out of the offer.
+* *Leaf key-usage checks for the negotiated key exchange.* These run even under the TOFU custom-verify callback (observed: `KEY_USAGE_BIT_INCORRECT` for an RSA leaf without keyEncipherment).
+* *X.509 path building and validation* in `webpki` mode: signatures, validity periods, basicConstraints/CA flag, key usage, path length, name constraints and critical-extension handling.
+** TESTED: the leaf-signed-by-a-leaf chain from ziglang/zig#35877 is rejected (`webpki: leaf signed by a non-CA leaf is rejected`).
+* *Hostname matching* against subjectAltName dNSName entries (`SSL_set1_host`, `X509_check_host`), including wildcard rules.
+* Parsing of every certificate the peer sends, in both modes.
+* QUIC-TLS support for a future DoQ client: `SSL_set_quic_method`. The wrapper does not use it yet.
+
+[[2-what-this-code-decides-the-wrappers-own-surface]]
+== 2. What this code decides (the wrapper's own surface)
+
+Everything here is the wrapper's responsibility. Every security-relevant line is marked `MISUSE-n` in `src/interface/ffi/src/root.zig`.
+
+[arabic]
+. *Which checks run.* In `webpki` mode it sets:
+* `SSL_VERIFY_PEER`;
+* the expected hostname, via `SSL_set1_host`;
+* `X509_CHECK_FLAG_NEVER_CHECK_SUBJECT`, which disables BoringSSL's default CN fallback (`x509.h`; crbug.com/boringssl/464);
+* minimum protocol version TLS 1.3 by default;
+* SNI;
+* the TLS 1.2 cipher list `ECDHE+AESGCM:ECDHE+CHACHA20`. BoringSSL's default is `ALL`, which includes static-RSA suites.
++
+`server_name` must be a DNS name. IPv4 in any spelling (the WHATWG "ends in a number" rule) and trailing dots are refused.
++
+In `tofu` mode it replaces BoringSSL's chain verification entirely with its own callback.
+. *The TOFU decision* (`tofuDecide`). It accepts a leaf if all of these hold:
+* the notBefore/notAfter window contains the current wall-clock time;
+* the name matches;
+* the SHA-256 of its DER SubjectPublicKeyInfo equals the stored pin, or no pin is stored yet.
++
+It does not check the self-signature, the issuer, key usage or EKU. That is deliberate: the pin is the trust anchor.
++
+A TOFU configuration with no known pin cannot also configure a client identity: the wrapper rejects it before the TLS handshake, so a first-contact server cannot elicit a client certificate before pin acknowledgement.
+. *Error classification.* It maps BoringSSL's results to Zig errors. A wrong mapping can mislabel a failure, but is designed never to turn a failure into a success. `handshake()` only returns a `HandshakeResult` when `SSL_connect` returned 1. Then:
+* in webpki mode, `SSL_get_verify_result` must be `X509_V_OK`;
+* in tofu mode, the callback must have recorded a positive decision.
+. *Typestate.*
+* `Connection` has no read/write methods.
+* `Config.trust` has no "no verification" variant.
+* First-use TOFU returns an opaque `FirstUseSession` pointer instead of a usable `Session`. It exposes the pin and has no read/write methods; callers must acknowledge the same pin they persisted before it can be converted to `Session`, or call `deinit()` to reject it (and after a successful acknowledgement to release the opaque handle).
+. *Resource lifetime.* It owns `SSL_CTX`/`SSL` and (for `connect`) the socket.
+
+[[3-every-place-the-wrapper-could-misuse-boringssl]]
+== 3. Every place the wrapper could misuse BoringSSL
+
+Each entry gives the misuse, what the wrapper does instead, and the evidence. "Mutation" means `src/interface/ffi/scripts/mutation-check.sh` re-introduces the misuse and the test suite fails. The original mutation outcomes were tested on 2026-10-13; the new regression mutations for first-use gating, client-identity gating, nonblocking descriptors, bare `0x` labels and DN truncation are pending the updated Zig CI run. Rows 1–11 are marked `MISUSE-n` in `src/interface/ffi/src/root.zig`; rows 12–18 are API-usage rules for callers, or properties of the test setup.
+
+[cols=",,,",options="header",]
+|===
+|# |Misuse |Guard in wrapper |Evidence
+|1 |Ignoring `SSL_CTX_load_verify_locations`'s return value. An empty store fails closed, but for the wrong reason, and masks configuration errors. |Returns `RootsLoadFailed`. |TESTED (test and mutation)
+|2 |An IP literal or trailing-dot name as `server_name`. `SSL_set1_host` would match it as a DNS name; RFC 6066 forbids both in SNI. |`validateServerName`: RFC 1123, no trailing dot, and the WHATWG "ends in a number" rule, so `127.1` and `0x7f.0.0.1` are refused too. Bare `0x` labels are not treated as numeric. IP-addressed servers are unsupported (OPEN). |REGRESSION TEST ADDED; updated Zig CI pending
+|3a |Using `SSL_VERIFY_NONE`, or forgetting `SSL_set_verify`. BoringSSL then completes the handshake whatever the chain. |Sets `SSL_VERIFY_PEER`. A post-handshake `SSL_get_verify_result` recheck is a backstop. |TESTED (mutation). The recheck alone is *not* enough: with `VERIFY_NONE` the handshake finishes on both sides (a client certificate may already have gone) before the recheck refuses the Session.
+|3b |Not calling `SSL_set1_host`. The chain is verified but *no hostname check happens at all*. |Called, and its return value checked. |TESTED (mutation)
+|3c |Leaving BoringSSL's subject-CN fallback on. It applies only when the certificate has *no subjectAltName extension at all* (`crypto/x509/v3_utl.cc`). |`X509_CHECK_FLAG_NEVER_CHECK_SUBJECT`. |TESTED (`webpki: subject CN is not used…`, mutation)
+|4 |Running the TOFU callback without its context, or with a dangling one. The context pointer is held in ex_data. |Attached for the duration of `SSL_connect`; a missing context fails closed (`ssl_verify_invalid`). The pointer is then cleared. Clearing it is extra caution only: the callback cannot run again after the handshake, because renegotiation is off and `ssl_verify_peer_cert` skips it once a session exists (`handshake.cc`). |Missing context: TESTED (mutation). Clearing: ASSUMED-src (cold review).
+|5 |Misreading `X509_cmp_time_posix`, which returns 0 on _error_. Skipping the expiry check in TOFU. |0 means `CertificateInvalid`; expiry is enforced. |Expiry: TESTED (test and mutation). The `== 0` branch: OPEN (no fixture with an unparseable time).
+|6 |Treating `X509_check_host`'s negative return (error) as a match. A *peer-controlled* certificate causes one: a CN tagged OCTET STRING with no SAN gives `UNKNOWN_TAG`. |Only `== 1` accepts. |TESTED (generated fixture `gemini_cn_octet.pem`, mutation). This was mis-assessed as unreachable before the cold review.
+|7 |Reporting EOF without close_notify as a clean end of stream (a truncation attack). |`SSL_ERROR_SYSCALL` with rc 0 gives `error.Truncated`. Only `SSL_ERROR_ZERO_RETURN` returns 0, and `read()` into an empty buffer is `error.EmptyBuffer`, so 0 is unambiguous. |TESTED (tests and mutation)
+|8 |Reading `SSL_get_verify_result` before verification ran. It returns `X509_V_ERR_INVALID_CALL`, not OK. |Excluded from the certificate-error mapping. |TESTED (mutation)
+|9 |`SSL_set_alpn_protos` returns *0* on success, unlike nearly every other setter. |Checked as `!= 0`. |TESTED (ALPN test)
+|10 |Changing process signal dispositions behind the caller's back. |Never done. `ignoreSigpipe()` is opt-in. Zig 0.17's `Io.Threaded` already installs a no-op SIGPIPE handler while it lives. |ASSUMED-src (code reading; `SigCgt` observed in the test process)
+|11 |Leaving the TLS 1.2 cipher list at BoringSSL's default `ALL`, so a server can choose static-RSA key exchange (no forward secrecy, no handshake signature). |`SSL_CTX_set_strict_cipher_list("ECDHE+AESGCM:ECDHE+CHACHA20")`. |TESTED (`TLS 1.2: static-RSA … never accepted`, mutation)
+|12 |Using a `PeerCertificate` or `alpn()` slice after `close()`. Both borrow BoringSSL memory. |Documented only. Zig cannot enforce it. |DESIGNED
+|13 |Copying a `Session` or `Connection` by value, then closing both copies (double free). Calling `handshake()` on a stale copy. |`handshake()` on the _same_ `Connection` twice returns `AlreadyConsumed`, which is TESTED. Copies are not detectable: Zig has no affine or linear types. |OPEN
+|14 |`fromFd`: the caller closes or reuses the fd while the Session lives, so BoringSSL writes into an unrelated descriptor. |Documented ownership rule only. Nonblocking descriptors are rejected before TLS setup using the target's `std.posix.O` flag layout; `connect` normalizes its newly owned fd. |REGRESSION TEST ADDED (Linux); updated Zig CI pending; other POSIX target coverage OPEN.
+|15 |Continuing to use a Session after `error.Timeout`. BoringSSL may be mid-record. |Documented: treat `Timeout` as fatal and close. `fromFd` rejects nonblocking fds so WANT_READ/WANT_WRITE is not mislabeled as timeout for them. |DESIGNED
+|16 |`io_timeout_ms = 0` blocks forever on a stalled peer (DoS). |Default is 30 s. Zero is allowed but documented. |ASSUMED-src
+|17 |Hand-written FFI declarations drifting from the headers when the pin moves. |`src/interface/ffi/tests/ffi_drift.zig` compares every declaration and constant in `src/interface/ffi/src/c.zig` with translate-c output: arity, varargs, callconv, integer shape, const-ness, nullability, `[*c]` narrowing, and handle identity. |TESTED (`src/interface/ffi/scripts/ffi-drift-selftest.sh`: 8 injected drifts, all caught). *Not checked:* ownership (`get0`/`get1`, who frees), and libc `close`/`time` declared in `root.zig` (`time` uses `std.c.time_t`, so it stays correct on 32-bit targets).
+|18 |Returning a truncated certificate subject or issuer as complete. |`X509_NAME_oneline`'s legacy API returns the output buffer even on truncation; the wrapper returns `error.BufferTooSmall` whenever the buffer is full, including the ambiguous exactly-fits case. |REGRESSION TEST ADDED; updated Zig CI pending
+|===
+
+Other properties worth stating:
+
+* *No revocation checking* (OCSP/CRL) and *no Certificate Transparency* in either mode. BoringSSL does neither by default. OPEN.
+* *No session resumption and no 0-RTT.* The wrapper never sets a session cache or calls `SSL_set_session`, so there is no replay surface. ASSUMED-src.
+* *Wall-clock dependence.* TOFU validity uses libc `time()`, and BoringSSL uses the system clock. A host with a wrong clock accepts expired certificates or rejects valid ones.
+* *Trust store.* In `webpki` mode only the PEM file the caller names is trusted. The wrapper never reads the system store, so the caller must protect that file's integrity.
+* *TOFU pin storage* belongs to the caller: key the pin by host _and_ port, write it atomically, and protect it from tampering. A `first_use` result is only as good as that storage.
+* *`observedPin()` is unauthenticated.* After `PinMismatch` it reports what the server _claimed_: the callback runs before key possession is proved (`tls13_client.cc`: `ssl_verify_peer_cert` precedes `tls13_process_certificate_verify`). Show it to a user; never store it.
+* *TLS 1.3 client-certificate rejection arrives late.* The server judges the client certificate after the client has finished its handshake, so a rejection shows up as `ProtocolError` on the first `read`, not from `handshake()`. TESTED.
+
+[[4-needs-external-security-review]]
+== 4. Needs external security review
+
+In priority order:
+
+[arabic]
+. *The BoringSSL build in `src/interface/ffi/build.zig`.* It does not use upstream's CMake. It compiles with Zig's clang:
+* with `-fvisibility=hidden -fno-common -fno-strict-aliasing` and `_XOPEN_SOURCE=700`;
+* with all perlasm `.S` files on ELF x86_64/aarch64;
+* with `OPENSSL_NO_ASM` elsewhere.
++
+*BoringSSL's own test suites (`crypto_test`, `ssl_test`, Wycheproof) have not been run against this build.* That is the most important gap (OPEN). The Debug build used by the tests is UBSan-instrumented (909 `__ubsan_handle_*` references in `libcrypto.a`), and no UB trap fired on the paths the tests exercise. That is weak evidence, nothing more.
+. *The TOFU callback* (`tofuVerifyCallback`, `tofuDecide`). Points to review:
+* its ordering relative to CertificateVerify (ASSUMED-src: `ssl/tls13_client.cc` runs `ssl_verify_peer_cert` before `tls13_process_certificate_verify`, and before the client sends its certificate);
+* the choice of SPKI pin over whole-certificate pin;
+* the name rules (`san_or_common_name` is the Gemini-compatible default).
+. *The FFI layer* (`src/interface/ffi/src/c.zig`). Shapes are checked mechanically; ownership and lifetime rules are not. A cold review checked every `get0`/owned return by hand and found them correct (ASSUMED-src).
+. *Supply chain.* The package hash in `src/interface/ffi/build.zig.zon` was computed from `git archive` of tag commit `427ec40c…` (shallow clone). It was *not* computed from the GitHub tarball the URL names, because tarball downloads were blocked in the build sandbox. On first fetch, Zig will refuse the package if the two differ, so a mismatch fails closed. The `Zig CI` workflow (`.github/workflows/zig-ci.yml`) re-fetches from the URL on every run, so its first green run confirms the hash. OPEN until then.
+. *BoringSSL itself* has no public whole-library audit (see `docs/decisions/0004-tls-library-for-zig.adoc`). Its "live at head, no backports" policy makes *pin updates a security process*: watch for upstream fixes, bump the pin, re-run `zig build test` and `src/interface/ffi/scripts/mutation-check.sh`.
+. *Test oracle independence.* The test server is BoringSSL too, so a bug shared by both ends could cancel out. Interoperability tests against OpenSSL `s_server`, a real Gemini server and real DoH endpoints are OPEN.
+. *Zig 0.17.0* was 12 days old when this was written; compiler bugs affect the wrapper's code generation.
+
+[[5-reporting]]
+== 5. Reporting
+
+Report vulnerabilities in this wrapper to the repository owner privately. Report BoringSSL issues through https://www.chromium.org/Home/chromium-security/reporting-security-bugs/[the Chromium process] (BoringSSL's `SECURITY.md`).
+
+[[6-review-history]]
+== 6. Review history
+
+* *2026-10-13, cold review* (separate agent session; adversarial brief; read-only on this repo, with experiments in a scratch copy). It found *no path that accepts a peer that should be rejected*, and these defects, all now fixed:
+** MISUSE-6 was triggerable by a hostile certificate. A fixture and test were added, and the mutation is now killed.
+** TLS 1.2 offered static-RSA key exchange. The cipher list was restricted, with a test and a mutation.
+** IP-like and trailing-dot server names were accepted. The name rule was tightened.
+** `read()` returned 0 into an empty buffer. It now returns `error.EmptyBuffer`.
+** One handshake failure path leaked the `SSL`. It now releases it.
+** `time()` was declared with a fixed 64-bit width. It now uses `std.c.time_t`.
+** The FFI drift checker had gaps. It now checks nullability, pointer narrowing and handle identity, with a self-test.
++
+Doc corrections from the same review:
+** the CN-fallback condition;
+** TLS 1.2 key-possession wording;
+** the `observedPin()` caveat;
+** the function count.
+
+[[7-test-fixtures]]
+== 7. Test fixtures
+
+No private key is committed. `src/interface/ffi/scripts/gen-fixtures.sh` generates the CA, leaves, keys and the OpenSSL-computed pins into the build cache on every `zig build test`, and the tests read them from there. The keys are throwaway test material; the secret scanner therefore has nothing to suppress.

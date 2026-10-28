@@ -1,23 +1,34 @@
 // SPDX-License-Identifier: CC-BY-SA-4.0
-// Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
+// SPDX-FileCopyrightText: 2026 Jonathan D.A. Jewell
 = zig-boringtls Roadmap
 
-== Current Status
+== Current status
 
-Initial development phase.
+Incubating (deed `(status)`), maturity experimental. The wrapper, its
+tests, the FFI drift check and the mutation check exist; a passing CI run is
+required before treating them as verified. See `README.adoc` §Status for what
+is TESTED versus OPEN.
 
 == Milestones
 
-=== v0.1.0 - Foundation
-* [ ] Core functionality
-* [ ] Basic documentation
-* [ ] CI/CD pipeline
+=== v0.1.0 — first usable cut
+* [x] BoringSSL built from `build.zig`, hash-pinned (ADR 0004)
+* [x] Typestate client API: WebPKI, TOFU pinning, client certificates, ALPN
+* [x] Loopback handshake tests, FFI drift check, mutation check
+* [x] Security notes (`docs/security/TLS-WRAPPER-SECURITY.adoc`)
+* [ ] `Zig CI` green on GitHub (also confirms the BoringSSL package hash)
+* [ ] Run BoringSSL's own `crypto_test` / `ssl_test` against this build
+* [ ] Interop tests against OpenSSL `s_server`, a real Gemini capsule and DoH endpoints
 
-=== v1.0.0 - Stable Release
-* [ ] Full feature set
-* [ ] Comprehensive tests
-* [ ] Production ready
+=== v0.2.0 — DoQ
+* [ ] Wrap BoringSSL's QUIC-TLS API (`SSL_set_quic_method`) for a QUIC stack
 
-== Future Directions
+=== Later
+* [ ] Idris2 ABI layer over the Zig surface (`src/interface/Abi/`), with
+  linear (quantity-1) handles so a `Connection` is consumed exactly once
+* [ ] External security review (see the security notes, §4)
 
-_To be determined based on community feedback._
+== Next actions
+
+. Merge the initial stacked PRs; resolve every review-app and CI finding.
+. File the template defects found at mint against `rsr-template-repo`.

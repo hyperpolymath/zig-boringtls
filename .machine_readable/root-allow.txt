@@ -40,6 +40,7 @@ launcher.sh                # --setup/--doctor/--heal/--ai-setup (launcher-standa
 coordination.k9.ncl        # repo-local session binding (template-mandated)
 
 # ─── Conventional dotfiles (tool-required at root) ───────────────────────────
+.containerignore              # repository-root build context excludes local secrets from OCI images
 .editorconfig
 .envrc
 .gitattributes

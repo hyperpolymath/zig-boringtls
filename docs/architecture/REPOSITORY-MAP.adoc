@@ -29,6 +29,10 @@ predecessors did.
 | optional
 | CodeRabbit reads its config from the root only; pins Docstring Coverage to mode: warning (estate decision, not a vendor default). Optional: only the template and the repos whose rulesets require the CodeRabbit context carry it
 
+| `.containerignore`
+| yes
+| repository-root build context excludes local secrets from OCI images
+
 | `.cursorrules`
 | yes
 | ROOT, so the copies formerly under .machine_readable/ai/ were inert.
