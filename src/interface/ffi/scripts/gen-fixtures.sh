@@ -177,4 +177,3 @@ pin() {
   echo "gemini_cn_only $(pin gemini_cn_only.pem)"
   echo "server $(pin server.pem)"
 } > "$out/pins.txt"
-echo "fixtures written to $out" >&2

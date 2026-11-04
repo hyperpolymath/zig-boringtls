@@ -6,8 +6,11 @@
 # path validation accepts a leaf signed by a non-CA (CA:FALSE) certificate.
 # The Zig probe mirrors the per-certificate sequence in std/crypto/tls/Client.zig:
 #   leaf.verifyHostName(host); leaf.verify(next); bundle.verify(next) (== next.verify(root)).
-# Exit status: 0 = std ACCEPTED the bogus chain (defect present), 1 = rejected.
-set -euo pipefail
+# Exit status: 0 = std ACCEPTED the bogus chain (defect present), 1 = rejected,
+# 2 = the probe did not run (fixture generation, compile or certificate parse
+# failed), so it says nothing about the defect.
+set -Eeuo pipefail
+trap 'exit 2' ERR
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 cd "$work"
@@ -29,9 +32,10 @@ cat > probe.zig <<'EOF'
 const std = @import("std");
 const Certificate = std.crypto.Certificate;
 pub fn main() !u8 {
-    const root = try (Certificate{ .buffer = @embedFile("root.der"), .index = 0 }).parse();
-    const mid = try (Certificate{ .buffer = @embedFile("mid.der"), .index = 0 }).parse();
-    const evil = try (Certificate{ .buffer = @embedFile("evil.der"), .index = 0 }).parse();
+    // A parse failure is not a verdict on the chain: report it as "did not run" (2).
+    const root = (Certificate{ .buffer = @embedFile("root.der"), .index = 0 }).parse() catch return 2;
+    const mid = (Certificate{ .buffer = @embedFile("mid.der"), .index = 0 }).parse() catch return 2;
+    const evil = (Certificate{ .buffer = @embedFile("evil.der"), .index = 0 }).parse() catch return 2;
     const now: i64 = @intCast(evil.validity.not_before + 60);
     evil.verifyHostName("evil.test") catch return 1;
     evil.verify(mid, now) catch return 1; // leaf signed by CA:FALSE cert
@@ -40,4 +44,9 @@ pub fn main() !u8 {
     return 0;
 }
 EOF
-zig run probe.zig
+# Compile separately: a build failure must not read as "rejected" (1).
+zig build-exe probe.zig
+trap - ERR
+set +e
+./probe
+exit $?

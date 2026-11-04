@@ -126,7 +126,10 @@ fn buildBoringSsl(
     const ssl_srcs = get.set(parsed, "ssl", b.allocator);
 
     const cxx_flags: []const []const u8 = &.{ "-std=c++17", "-fno-strict-aliasing", "-fno-common", "-fvisibility=hidden" };
-    const asm_flags: []const []const u8 = &.{};
+    // Upstream CMake passes this too. The perlasm sources already emit a
+    // non-executable .note.GNU-stack via openssl/asm_base.h; the flag keeps
+    // that true for any assembly file that does not include it.
+    const asm_flags: []const []const u8 = &.{"-Wa,--noexecstack"};
     const include = dep.path("include");
 
     const is_linux = target.result.os.tag == .linux;
