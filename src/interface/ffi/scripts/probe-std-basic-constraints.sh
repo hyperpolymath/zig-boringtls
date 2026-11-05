@@ -49,4 +49,6 @@ zig build-exe probe.zig
 trap - ERR
 set +e
 ./probe
-exit $?
+rc=$?
+# 0/1/2 are the probe's own answers; anything else (cannot execute, signal) means it did not run.
+case "$rc" in 0|1|2) exit "$rc" ;; *) exit 2 ;; esac

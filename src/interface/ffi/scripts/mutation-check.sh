@@ -31,8 +31,15 @@ mutate() {
     shift 2
   done
   printf '%s\n' "$content" > src/root.zig
-  local outcome=killed
-  if zig build test >/dev/null 2>&1; then outcome=survives; fi
+  # A mutation that does not compile proves nothing about the tests: report it
+  # as compile-error (never "killed") so the expected-outcome check flags it.
+  local outcome=killed log
+  if log="$(zig build test 2>&1)"; then
+    outcome=survives
+  elif grep -Eq '\.zig:[0-9]+:[0-9]+: error:' <<<"$log"; then
+    outcome=compile-error
+    grep -E -m 3 '\.zig:[0-9]+:[0-9]+: error:' <<<"$log" >&2
+  fi
   if [[ "$outcome" == "$expect" ]]; then
     echo "[$id] $outcome (as expected)"
   else
