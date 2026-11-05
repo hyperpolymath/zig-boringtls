@@ -78,13 +78,13 @@ mutate "allow bare 0x DNS label" killed \
   "label.len > 2 and label[0] == '0'" "label.len >= 2 and label[0] == '0'"
 mutate "MISUSE: permit nonblocking fromFd" killed \
   'if (reject_nonblocking) return error.NonBlockingSocket;' \
-  'if (false) return error.NonBlockingSocket;'
+  '_ = reject_nonblocking;'
 mutate "TOFU first-use exposed as an ordinary Session" killed \
   'break :blk .{ .first_use = @ptrCast(pending) };' \
   'break :blk .{ .established = pending.session.? };'
 mutate "TOFU first use sends client identity before acknowledgement" killed \
-  'if (tofu.known_pin == null) return error.ClientIdentityRequiresKnownPin,' \
-  'if (false) return error.ClientIdentityRequiresKnownPin,'
+  '.tofu => |tofu| if (tofu.known_pin == null) return error.ClientIdentityRequiresKnownPin,' \
+  '.tofu => {},'
 mutate "certificate DN truncation reported as success" killed \
   'if (text.len > out.len) return error.BufferTooSmall;' \
   'if (false) return error.BufferTooSmall;'
@@ -110,7 +110,7 @@ mutate "MISUSE-7 truncation reported as clean EOF" killed \
   'c.SSL_ERROR_SYSCALL => if (rc == 0) error.Truncated else error.TransportError,' \
   'c.SSL_ERROR_SYSCALL => if (rc == 0) 0 else error.TransportError,'
 mutate "TOFU: accept on pin mismatch" killed \
-  'if (!known.eql(pin)) return error.PinMismatch;' ''
+  'if (!known.eql(pin)) return error.PinMismatch;' '_ = known;'
 mutate "TOFU: callback returns ok after refusing" killed \
   'else => c.SSL_AD_CERTIFICATE_UNKNOWN,
         };
