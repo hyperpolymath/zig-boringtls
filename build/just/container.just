@@ -185,7 +185,13 @@ container-run *args:
     #!/usr/bin/env bash
     set -euo pipefail
     {{_engine}}
-    "$ENGINE" run --rm -it zig_boringtls:latest {{args}}
+    # Run the image container-build produced: ct-build.sh tags the full registry name.
+    if [ -f "build/container/stapeln/ct-build.sh" ]; then
+        image="${CT_REGISTRY:-ghcr.io/hyperpolymath}/zig-boringtls:${CT_TAG:-latest}"
+    else
+        image="zig_boringtls:latest"
+    fi
+    "$ENGINE" run --rm -it "$image" {{args}}
 
 # Container matrix: [build|run|push|shell|scan] x [registry] x [tag]
 container-matrix action="build" registry="ghcr.io/hyperpolymath" tag="latest":

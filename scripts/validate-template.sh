@@ -303,8 +303,8 @@ check_abi_file_exists "Foreign.idr" "FFI foreign declarations"
 
 # Zig FFI files
 check_file_exists "src/interface/ffi/build.zig" "Zig build configuration"
-check_file_exists "src/interface/ffi/src/main.zig" "Zig implementation"
-check_file_exists "src/interface/ffi/test/integration_test.zig" "Integration tests"
+check_file_exists "src/interface/ffi/src/root.zig" "Zig implementation"
+check_file_exists "src/interface/ffi/tests/integration.zig" "Integration tests"
 
 #==============================================================================
 # VALIDATION PHASE 5: PLACEHOLDER TOKENS

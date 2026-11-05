@@ -146,8 +146,9 @@ filled for this library.
 | Item | Status
 
 | BoringSSL `0.20260929.0` builds from `build.zig` | TESTED (x86_64-linux)
-| Zig tests (Debug and ReleaseSafe) | CI REQUIRED; not run in this session
-| 21 mutations: expected 20 killed and 1 redundant-guard survivor | CI REQUIRED; not run in this session
+| Zig tests (Debug and ReleaseSafe) | TESTED in CI (39/39 each; Zig CI run 40691571893)
+| 21 mutations: expected 20 killed and 1 redundant-guard survivor | TESTED in CI under the corrected checker (Zig CI run 41941882295)
+| Pinned BoringSSL hash matches GitHub's tarball | TESTED in CI (same run, fetch step)
 | BoringSSL's own `crypto_test`/`ssl_test` run against this build | OPEN
 | Interop with OpenSSL, real Gemini servers and DoH endpoints | OPEN
 | DoQ (QUIC): BoringSSL's QUIC API is available but not wrapped | OPEN
