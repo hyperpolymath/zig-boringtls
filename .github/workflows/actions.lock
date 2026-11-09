@@ -45,7 +45,7 @@ workflows:
     '.github/workflows/labels.yml': []
     '.github/workflows/lock-sync-gate.yml': []
     '.github/workflows/main-estate-audit.yml':
-        - 'hyperpolymath/cicd-suite@55556cf5ba71ba744695861503c13148d3915a5d'
+        - 'hyperpolymath/proven-cicd-and-workflows@55556cf5ba71ba744695861503c13148d3915a5d'
     '.github/workflows/mirror.yml':
         - 'hyperpolymath/standards@da2c748aad55c1a1dcba00b60fe4a35017bc6540'
     '.github/workflows/ossf-best-practices.yml':
@@ -212,14 +212,6 @@ dependencies:
         commit: 'sha1-0da816c05ae7486671d863e07935f93981c0c2d5'
         owner_id: 6759885
         repo_id: 1326697643
-    'hyperpolymath/cicd-suite@55556cf5ba71ba744695861503c13148d3915a5d':
-        ref: '55556cf5ba71ba744695861503c13148d3915a5d'
-        commit: 'sha1-55556cf5ba71ba744695861503c13148d3915a5d'
-        owner_id: 6759885
-        repo_id: 1326697643
-        uses:
-            - 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
-            - 'hyperpolymath/cicd-suite@0da816c05ae7486671d863e07935f93981c0c2d5'
     'hyperpolymath/deed-ecosystem@main':
         ref: 'main'
         commit: 'sha1-44f9c9fc42901a55e0f489a40eabf4173e550d1d'
@@ -230,6 +222,14 @@ dependencies:
         commit: 'sha1-2155aa26a21758f2ba119f61bc7e0e1981c106fb'
         owner_id: 6759885
         repo_id: 1275650185
+    'hyperpolymath/proven-cicd-and-workflows@55556cf5ba71ba744695861503c13148d3915a5d':
+        ref: '55556cf5ba71ba744695861503c13148d3915a5d'
+        commit: 'sha1-55556cf5ba71ba744695861503c13148d3915a5d'
+        owner_id: 6759885
+        repo_id: 1326697643
+        uses:
+            - 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
+            - 'hyperpolymath/cicd-suite@0da816c05ae7486671d863e07935f93981c0c2d5'
     'hyperpolymath/smtp-notify-action@v0.5.0':
         ref: 'v0.5.0'
         commit: 'sha1-c1c9fa07992a02c1fd3d67a0dc1b08cccb852aef'
