@@ -45,7 +45,7 @@ workflows:
     '.github/workflows/labels.yml': []
     '.github/workflows/lock-sync-gate.yml': []
     '.github/workflows/main-estate-audit.yml':
-        - 'hyperpolymath/cicd-suite@55556cf5ba71ba744695861503c13148d3915a5d'
+        - 'hyperpolymath/proven-cicd-and-workflows@55556cf5ba71ba744695861503c13148d3915a5d'
     '.github/workflows/mirror.yml':
         - 'hyperpolymath/standards@da2c748aad55c1a1dcba00b60fe4a35017bc6540'
     '.github/workflows/ossf-best-practices.yml':
@@ -61,7 +61,7 @@ workflows:
         - 'hyperpolymath/smtp-notify-action@v0.5.0'
     '.github/workflows/quality.yml':
         - 'actions/checkout@v7.0.1'
-        - 'editorconfig-checker/action-editorconfig-checker@v3.0.0'
+        - 'editorconfig-checker/action-editorconfig-checker@51f63319f592f97930c73d9c46184d20bd206393'
     '.github/workflows/release.yml':
         - 'actions/attest-build-provenance@v4.2.2'
         - 'actions/checkout@v7.0.1'
@@ -76,7 +76,7 @@ workflows:
     '.github/workflows/scorecard.yml':
         - 'hyperpolymath/standards@da2c748aad55c1a1dcba00b60fe4a35017bc6540'
     '.github/workflows/secret-scanner.yml':
-        - 'hyperpolymath/standards@da2c748aad55c1a1dcba00b60fe4a35017bc6540'
+        - 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
     '.github/workflows/security-policy.yml':
         - 'actions/checkout@v7.0.1'
     '.github/workflows/sonarqube.yml':
@@ -116,7 +116,7 @@ dependencies:
         owner_id: 44036562
         repo_id: 215566462
     'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1':
-        ref: '3d3c42e5aac5ba805825da76410c181273ba90b1'
+        ref: 'v7.0.1'
         commit: 'sha1-3d3c42e5aac5ba805825da76410c181273ba90b1'
         owner_id: 44036562
         repo_id: 197814629
@@ -173,11 +173,6 @@ dependencies:
         owner_id: 1940490
         repo_id: 260749683
     'editorconfig-checker/action-editorconfig-checker@51f63319f592f97930c73d9c46184d20bd206393':
-        ref: '51f63319f592f97930c73d9c46184d20bd206393'
-        commit: 'sha1-51f63319f592f97930c73d9c46184d20bd206393'
-        owner_id: 26415196
-        repo_id: 297874902
-    'editorconfig-checker/action-editorconfig-checker@v3.0.0':
         ref: 'v3.0.0'
         commit: 'sha1-51f63319f592f97930c73d9c46184d20bd206393'
         owner_id: 26415196
@@ -217,14 +212,6 @@ dependencies:
         commit: 'sha1-0da816c05ae7486671d863e07935f93981c0c2d5'
         owner_id: 6759885
         repo_id: 1326697643
-    'hyperpolymath/cicd-suite@55556cf5ba71ba744695861503c13148d3915a5d':
-        ref: '55556cf5ba71ba744695861503c13148d3915a5d'
-        commit: 'sha1-55556cf5ba71ba744695861503c13148d3915a5d'
-        owner_id: 6759885
-        repo_id: 1326697643
-        uses:
-            - 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
-            - 'hyperpolymath/cicd-suite@0da816c05ae7486671d863e07935f93981c0c2d5'
     'hyperpolymath/deed-ecosystem@main':
         ref: 'main'
         commit: 'sha1-44f9c9fc42901a55e0f489a40eabf4173e550d1d'
@@ -235,6 +222,14 @@ dependencies:
         commit: 'sha1-2155aa26a21758f2ba119f61bc7e0e1981c106fb'
         owner_id: 6759885
         repo_id: 1275650185
+    'hyperpolymath/proven-cicd-and-workflows@55556cf5ba71ba744695861503c13148d3915a5d':
+        ref: '55556cf5ba71ba744695861503c13148d3915a5d'
+        commit: 'sha1-55556cf5ba71ba744695861503c13148d3915a5d'
+        owner_id: 6759885
+        repo_id: 1326697643
+        uses:
+            - 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
+            - 'hyperpolymath/cicd-suite@0da816c05ae7486671d863e07935f93981c0c2d5'
     'hyperpolymath/smtp-notify-action@v0.5.0':
         ref: 'v0.5.0'
         commit: 'sha1-c1c9fa07992a02c1fd3d67a0dc1b08cccb852aef'

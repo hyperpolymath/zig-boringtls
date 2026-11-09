@@ -56,7 +56,7 @@ jobs:
         run: |
           find . -type f -size +1M -not -path "./.git/*" | head -10 || echo "No large files"
       - name: EditorConfig check
-        uses: editorconfig-checker/action-editorconfig-checker@v3.0.0
+        uses: editorconfig-checker/action-editorconfig-checker@51f63319f592f97930c73d9c46184d20bd206393 # v3.0.0
         continue-on-error: true
   docs:
     runs-on: ubuntu-24.04
