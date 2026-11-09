@@ -18,10 +18,12 @@ either loses real function — keep both.
 
 == Secret scanning is single-sourced *in CI* — and two-tier overall
 
-`secret-scanner.yml` calls the standards reusable (gitleaks + a Rust-secrets
-check). An inline TruffleHog job was removed: the reusable deliberately retired
-TruffleHog as redundant with gitleaks, so re-adding it was duplicated work, not
-extra coverage.
+`secret-scanner.yml` runs the standards secret-scanning contract inline
+(gitleaks, rust-secrets, shell-secrets), ported from rsr-template-repo #295;
+the job-level call to the standards reusable it replaced failed at startup with
+zero jobs. TruffleHog is not a CI job: the standards contract deliberately
+retired it as redundant with gitleaks, so re-adding it would be duplicated
+work, not extra coverage.
 
 **That retirement is scoped to CI.** The estate runs a deliberate *two-tier*
 secret defence, and the second tier is not in this directory:
@@ -32,7 +34,7 @@ secret defence, and the second tier is not in this directory:
 
 | CI
 | gitleaks (+ rust-secrets, shell-secrets)
-| `secret-scanner.yml` -> standards reusable. Runs on pull_request and on push
+| `secret-scanner.yml` (inline, standards contract). Runs on pull_request and on push
   to main — i.e. on what has *already reached* the remote.
 
 | Local
