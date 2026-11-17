@@ -55,9 +55,27 @@ jobs:
       - name: Check for large files
         run: |
           find . -type f -size +1M -not -path "./.git/*" | head -10 || echo "No large files"
+      # Inline, pinned editorconfig-checker. The third-party action is not
+      # permitted by this repository's allowed-actions policy (hyperpolymath-owned,
+      # GitHub-created or verified, full-SHA pinned) and SHA-pinning alone did not
+      # satisfy it. Same pattern as gitleaks in secret-scanner.yml: release binary,
+      # pinned version, sha256 checked before extraction.
       - name: EditorConfig check
-        uses: editorconfig-checker/action-editorconfig-checker@51f63319f592f97930c73d9c46184d20bd206393 # v3.0.0
         continue-on-error: true
+        env:
+          EC_VERSION: '3.8.0'
+          EC_SHA256: '613bd88f34165a334adcb6b7e92a123c9de0eada65846d31af63613b779ff3be'
+        run: |
+          set -euo pipefail
+          TARBALL="ec-linux-amd64.tar.gz"
+          URL="https://github.com/editorconfig-checker/editorconfig-checker/releases/download/v${EC_VERSION}/${TARBALL}"
+          curl -sSfL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+            --retry 3 --retry-delay 2 \
+            -o "$RUNNER_TEMP/$TARBALL" "$URL"
+          echo "${EC_SHA256}  ${RUNNER_TEMP}/${TARBALL}" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$TARBALL" -C "$RUNNER_TEMP" bin/ec-linux-amd64
+          rm -f "$RUNNER_TEMP/$TARBALL"
+          "$RUNNER_TEMP/bin/ec-linux-amd64"
   docs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

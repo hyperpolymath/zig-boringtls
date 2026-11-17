@@ -61,7 +61,6 @@ workflows:
         - 'hyperpolymath/smtp-notify-action@v0.5.0'
     '.github/workflows/quality.yml':
         - 'actions/checkout@v7.0.1'
-        - 'editorconfig-checker/action-editorconfig-checker@51f63319f592f97930c73d9c46184d20bd206393'
     '.github/workflows/release.yml':
         - 'actions/attest-build-provenance@v4.2.2'
         - 'actions/checkout@v7.0.1'
