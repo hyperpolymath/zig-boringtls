@@ -6,16 +6,386 @@ on:
   push:
     branches: [main, master]
   pull_request:
-    branches: [main, master]
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 permissions:
-  actions: read      # required by the reusable workflow (staleness check reads workflow runs)
   contents: read
 
+# Self-contained execution of the shared estate governance policies pinned to
+# metadatastician/standards@f0b3cd4c464d33e1584f8528c17bce104555e256
+# (replacing the retired runtime-policy.yml workflow per PR #244).
+#
+# The DEED and K9 conformance lanes below are pinned separately, to
+# metadatastician/standards@3f480e93c453271031da8890088f9cfc00d4de66: their lane scripts
+# (conformance-deed.sh, conformance-k9.sh) first exist at 159fda2c, after the pin above.
+# This commit is the last standards commit before #1574, which turned standards main red on 14 Nov; the lane scripts are identical to 159fda2c. The other sites stay on the older pin until each one is checked for compatibility.
 jobs:
   governance:
-    uses: hyperpolymath/standards/.github/workflows/governance-reusable.yml@da2c748aad55c1a1dcba00b60fe4a35017bc6540
+    name: Estate Governance Policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      STANDARDS_PIN: 'f0b3cd4c464d33e1584f8528c17bce104555e256'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout pinned standards policy scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: metadatastician/standards
+          ref: f0b3cd4c464d33e1584f8528c17bce104555e256
+          path: .standards-checkout
+          sparse-checkout: |
+            scripts
+            0-canon
+          sparse-checkout-cone-mode: true
+          persist-credentials: false
+
+      - name: Enforce TypeScript and npm/yarn runtime policy
+        run: |
+          set -euo pipefail
+          # The pinned script is the sole TypeScript verdict: it honours the
+          # builtin allowlist, .claude/CLAUDE.md exemptions and
+          # .governance-allowlist. A second inline filter here would disagree
+          # with it. A missing script is a failure, never a silent skip.
+          test -f .standards-checkout/scripts/check-ts-allowlist.sh || {
+            echo "::error::Pinned check-ts-allowlist.sh missing at $STANDARDS_PIN"
+            exit 1
+          }
+          bash .standards-checkout/scripts/check-ts-allowlist.sh
+          rm -rf .standards-checkout
+
+          # pnpm-lock.yaml is expected, not banned: every package carries
+          # bun.lock, deno.lock and pnpm-lock.yaml together, written by
+          # tools/js-runtimes regen (standards LANGUAGE-POLICY §1.3-§1.4,
+          # owner ruling 2026-10-14). package-lock.json stays refused, and
+          # yarn is in no tier.
+          bad_locks="$(git ls-files 'package-lock.json' '**/package-lock.json' 'yarn.lock' '**/yarn.lock' || true)"
+          if [ -n "$bad_locks" ]; then
+            echo "::error::Banned npm/yarn lockfiles detected (Bun first, from one package.json, per standards LANGUAGE-POLICY §1.3):"
+            printf '%s\n' "$bad_locks"
+            exit 1
+          fi
+
+          if [ -f tsconfig.json ] || [ -f Makefile ] || [ -f GNUmakefile ]; then
+            echo "::error::Banned root config (tsconfig.json / Makefile) detected"
+            exit 1
+          fi
+          echo "Governance runtime and language anti-pattern checks passed."
+
+  # A2ML is retired (standards A7, owner ruling S3 of 2026-11-14: the A2ML
+  # checks live in both governance-reusable.yml and this inline governance).
+  # The hard gate is estate-rules.yml "No .a2ml files": no A2ML outside the
+  # shrink-only legacy ledger, 9-archive/ included, so an added, copied,
+  # renamed or moved A2ML file fails (owner ruling 2026-11-14: A2ML moves
+  # fail), as standards' diff-based no-new-a2ml does. The advisory existing-A2ML lister is the
+  # existing-a2ml job below. It, and the DEED and K9 conformance lanes, need a
+  # standards pin that carries their scripts (159fda2c or later); pins move
+  # only through the applier (owner ruling, 2026-11-14).
+
+  # Measured debt may fall, never rise silently (standards
+  # scripts/check-debt-ratchet.sh, the same gate as governance-reusable.yml's
+  # debt-ratchet job). A repo with no Debtfile passes. Pull requests only:
+  # the ratchet compares against the base commit.
+  debt-ratchet:
+    name: Debt ratchet
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    if: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history: the ratchet reads the Debtfile at the base commit
+          # and scans commit messages between base and HEAD for a declared
+          # exception.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout the pinned debt ratchet
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: metadatastician/standards
+          ref: f0b3cd4c464d33e1584f8528c17bce104555e256
+          path: .standards-debt-ratchet
+          sparse-checkout: |
+            scripts/check-debt-ratchet.sh
+            scripts/check-debtfile-structure.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Debt ratchet
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          # Stage the scripts outside the scanned tree and delete the checkout,
+          # so the ratchet reads only this repository's Debtfile. A missing
+          # script is a failure, never a silent skip.
+          for s in check-debt-ratchet.sh check-debtfile-structure.sh; do
+            test -f ".standards-debt-ratchet/scripts/$s" || {
+              echo "::error::Pinned $s missing at f0b3cd4c464d33e1584f8528c17bce104555e256"
+              exit 1
+            }
+            cp ".standards-debt-ratchet/scripts/$s" "$RUNNER_TEMP/"
+          done
+          rm -rf .standards-debt-ratchet
+          if [ -f .machine_readable/Debtfile.a2ml ]; then
+            bash "$RUNNER_TEMP/check-debtfile-structure.sh"
+          fi
+          bash "$RUNNER_TEMP/check-debt-ratchet.sh" "$BASE_SHA"
+
+  # The advisory existing-A2ML lister (standards scripts/list-existing-a2ml.sh,
+  # the same listing as governance-reusable.yml's existing-a2ml-warning job).
+  # It never fails the run: the checkout and the staging are best effort too, so
+  # a pin without the script is one warning, not a red run.
+  existing-a2ml:
+    name: Existing A2ML (advisory)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      ADVISORY: 'true'
+    steps:
+      - name: Checkout repository
+        id: checkout
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: List existing A2ML files (never fails)
+        if: ${{ steps.checkout.outcome == 'success' }}
+        env:
+          STANDARDS_PIN: f0b3cd4c464d33e1584f8528c17bce104555e256
+        run: |
+          # Best effort end to end, and visibly so: a missing pin, network or script
+          # becomes one ::warning::, never a red run and never a silently masked step
+          # (no continue-on-error). The script is fetched outside the scanned tree.
+          d="$RUNNER_TEMP/standards-list-a2ml"
+          if git init -q "$d" \
+             && git -C "$d" fetch -q --depth 1 https://github.com/metadatastician/standards.git "$STANDARDS_PIN" \
+             && git -C "$d" checkout -q FETCH_HEAD -- scripts/list-existing-a2ml.sh; then
+            bash "$d/scripts/list-existing-a2ml.sh" . || echo "::warning::the existing-A2ML listing could not run (exit $?)"
+          else
+            echo "::warning::could not fetch scripts/list-existing-a2ml.sh at $STANDARDS_PIN (the pin may predate it); the existing-A2ML listing did not run."
+          fi
+
+      - name: Say so when the checkout failed
+        if: ${{ steps.checkout.outcome == 'failure' }}
+        run: echo "::warning::the repository checkout failed, so the existing-A2ML listing did not run."
+
+  # The DEED conformance lane (standards scripts/conformance-deed.sh, the same
+  # code governance-reusable.yml's nested deed-conformance.yml runs). ADVISORY
+  # is on, as in the reusable: every finding is a ::warning:: and the job passes,
+  # so a repository opts into enforcement by setting ADVISORY to 'false'.
+  deed-conformance:
+    name: Deed conformance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      ADVISORY: 'true'
+      LANE: .standards-checkout/scripts/conformance-deed.sh
+      T: .standards-checkout/1-formats/deed/tools
+    steps:
+      - name: Checkout repository
+        id: checkout
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout the pinned DEED lane
+        id: canon
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: metadatastician/standards
+          ref: 3f480e93c453271031da8890088f9cfc00d4de66
+          path: .standards-checkout
+          sparse-checkout: |
+            scripts/conformance-deed.sh
+            1-formats/deed/tools
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Assert the pinned DEED lane script is present
+        # A checkout that succeeded but left no script means the standards pin
+        # predates it (159fda2c or later is needed): a configuration error, never an
+        # advisory finding, so it fails loudly and is not masked.
+        if: ${{ steps.canon.outcome == 'success' }}
+        run: |
+          test -f "$LANE" || { echo "::error::Pinned conformance-deed.sh missing: the standards pin predates it (159fda2c or later is needed)"; exit 1; }
+
+      - name: Set up Bun
+        id: bun
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.2"
+
+      - name: Lint every committed deed
+        id: lint
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        run: bash "$LANE" lint
+
+      - name: Advisory findings as warnings
+        # Also when a prerequisite step failed: a failed checkout leaves an empty
+        # workspace that lints as "nothing to lint" and would otherwise go green.
+        if: ${{ always() && env.ADVISORY == 'true' && (steps.lint.outcome == 'failure' || steps.checkout.outcome == 'failure' || steps.canon.outcome == 'failure' || steps.bun.outcome == 'failure') }}
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        run: |
+          # The script lives in the checkout this step may be reporting on, so the
+          # fallback for its absence is inline: a failed checkout must still warn.
+          if [ -f "$LANE" ]; then
+            bash "$LANE" warn
+          else
+            echo "::warning::deed conformance (advisory): the conformance script could not be staged (a checkout step failed), so conformance did not run; not enforced."
+          fi
+
+  # The K9 conformance lane (standards scripts/conformance-k9.sh, the same code
+  # as the nested k9-conformance.yml). Advisory by the same switch as above. The
+  # grid is written to the job summary; the delta column reads the previous grid
+  # comment on a pull request.
+  k9-conformance:
+    name: K9 conformance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      ADVISORY: 'true'
+      CANON: .standards-checkout
+      CANON_REF: 3f480e93c453271031da8890088f9cfc00d4de66
+      LANE: .standards-checkout/scripts/conformance-k9.sh
+      NICKEL_VERSION: '1.18.0'
+      NICKEL_SHA256: '9cba4dd65ae9915ec61f73033aafcff307a377665a83fd8f530df086763318cb'
+    steps:
+      - name: Checkout repository
+        id: checkout
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Full history: the changed-file list is the merge-base diff and the
+          # ledger ratchet reads the commit messages.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout the pinned K9 lane
+        id: canon
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: metadatastician/standards
+          ref: 3f480e93c453271031da8890088f9cfc00d4de66
+          path: .standards-checkout
+          sparse-checkout: |
+            1-formats/k9
+            2-protocols/k9-coordination/spec/abnf
+            2-protocols/k9-coordination/tools/validate
+            scripts/k9-grid.sh
+            scripts/lib/k9-grid.jq
+            scripts/conformance-k9.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Assert the pinned K9 lane script is present
+        # As for the DEED lane: a missing script at the pinned SHA is a configuration
+        # error and fails loudly.
+        if: ${{ steps.canon.outcome == 'success' }}
+        run: |
+          test -f "$LANE" || { echo "::error::Pinned conformance-k9.sh missing: the standards pin predates it (159fda2c or later is needed)"; exit 1; }
+
+      - name: Install Nickel (pinned, sha256-verified)
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        run: |
+          set -euo pipefail
+          URL="https://github.com/tweag/nickel/releases/download/${NICKEL_VERSION}/nickel-x86_64-linux"
+          curl -sSfL --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 -o "$RUNNER_TEMP/nickel" "$URL"
+          echo "${NICKEL_SHA256}  ${RUNNER_TEMP}/nickel" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/nickel"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Set up Bun
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.2"
+
+      - name: Validator self-test
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        run: bash "$LANE" selftest
+
+      - name: Contract typecheck
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        run: bash "$LANE" typecheck
+
+      - name: Enumerate the committed K9 files, the changed files and ledger growth
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          LEDGER: .machine_readable/k9-contract-debt.txt
+        run: bash "$LANE" enumerate
+
+      - name: Validate every committed K9 file (L0-L2, strict)
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        run: bash "$LANE" validate
+
+      - name: Validate coordination.k9 files against the v1.2 ABNF
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        run: bash "$LANE" coord
+
+      - name: Read the grid comment from the previous revision (delta column)
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENTS_URL: ${{ github.event.pull_request.comments_url }}
+          MARKER: '<!-- verdict-grid:k9 regenerated on every run -->'
+          GRID_AUTHOR: github-actions[bot]
+        run: bash "$LANE" previous
+
+      - name: Render the verdict grid
+        id: grid
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        env:
+          REQUIRE_FILES: 'false'
+          PR_NUMBER: ${{ github.event.pull_request.number || 'local' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash "$LANE" render
+
+      - name: Gate
+        continue-on-error: ${{ env.ADVISORY == 'true' }}
+        env:
+          STATE: ${{ steps.grid.outputs.state }}
+          FAIL_ON_INDETERMINATE: 'false'
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          CANON_OUTCOME: ${{ steps.canon.outcome }}
+        run: |
+          # The script lives in the checkout this step may be reporting on, so the
+          # fallback for its absence is inline: a failed checkout must still say so.
+          if [ -f "$LANE" ]; then
+            bash "$LANE" gate
+          elif [ "$ADVISORY" = "true" ]; then
+            echo "::warning::K9 conformance (advisory): the conformance script could not be staged (a checkout step failed), so conformance did not run; not enforced."
+          else
+            echo "::error::K9 conformance could not run: the conformance script could not be staged (a checkout step failed)"; exit 1
+          fi

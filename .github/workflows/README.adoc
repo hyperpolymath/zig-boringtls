@@ -5,16 +5,20 @@ This directory holds the repo's CI/CD. A few workflows *look* like they overlap
 but are deliberately distinct — documented here so the apparent duplication is
 not "tidied away" into a real coverage gap.
 
-== Hypatia runs in two places (on purpose)
+== Hypatia runs once
 
-* `hypatia-scan.yml` — the **standalone security scan** (push / PR / weekly).
-  Independent; this is the repo's own Hypatia coverage.
-* `static-analysis-gate.yml` -> `hypatia-scan` job — runs Hypatia as part of the
-  **gate**, then the `deposit-findings` job hands the results to the
-  **gitbot-fleet learning** pipeline. This job is also a *required status check*.
+`hypatia-scan.yml` is the only workflow that runs Hypatia (owner ruling
+2026-11-09, as in rsr-template-repo; it clears hypatia rule-order clash C1).
+`static-analysis-gate.yml` used to run it a second time; that job is gone. The
+gate now runs panic-attack and pons-asinorum, Patch Bridge CVE triage and
+`deposit-findings`, which hands their results to the gitbot-fleet learning
+pipeline. Do not re-add a Hypatia job to the gate.
 
-Same tool, two different consumers (security scan vs fleet learning). Removing
-either loses real function — keep both.
+Not brought over from the template (nothing here consumes them yet):
+`fork-governance.yml`, `verdict-grid-publish.yml`, `squabble.yml`,
+`proven-tests.yml` and `scripts/check-workflow-edges.sh`. The template's
+Hypatia and static-analysis evidence artifacts feed the verdict grid; until
+fork-governance lands here they have no reader.
 
 == Secret scanning is single-sourced *in CI* — and two-tier overall
 
