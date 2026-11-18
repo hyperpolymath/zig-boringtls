@@ -135,9 +135,9 @@ podman build -t zig-boringtls-test -f build/container/Containerfile . \
 The `Zig CI` workflow runs the format check, Debug and ReleaseSafe tests, the
 drift self-test and the mutation check on every pull request.
 
-`just test` also detects the template's Idris2 ABI scaffold
-(`src/interface/abi.ipkg`) and needs `idris2` for it; that seam is not yet
-filled for this library.
+`src/interface/Abi/` holds the handle lifecycle as an Idris2 contract with
+linear handles (issue #11); `just proof-check-idris2` typechecks it and needs
+`idris2` 0.7.0. The Zig wrapper does not implement that contract yet.
 
 == Status
 
@@ -152,7 +152,8 @@ filled for this library.
 | BoringSSL's own `crypto_test`/`ssl_test` run against this build | OPEN
 | Interop with OpenSSL, real Gemini servers and DoH endpoints | OPEN
 | DoQ (QUIC): BoringSSL's QUIC API is available but not wrapped | OPEN
-| An Idris2 ABI layer over this Zig surface (`src/interface/Abi/`) | OPEN
+| Handle lifecycle as an Idris2 contract with linear handles (`src/interface/Abi/`) | PROVEN locally (`docs/status/PROOF-STATUS.adoc` LIN-1 to LIN-3; no CI lane yet)
+| The Zig wrapper implementing that contract (an Idris2 binding over a C ABI) | OPEN
 | External security review | OPEN
 |===
 
