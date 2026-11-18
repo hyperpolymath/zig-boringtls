@@ -61,8 +61,27 @@ failing "There are 0 uses of linear name s"
   leakSession : (tls : Tls) -> (1 s : tls.Session) -> ()
   leakSession tls s = ()
 
--- Smuggling a connection out of `withConnection` inside an unrestricted
--- result, where it could be copied later.
+-- Carrying a handle out of `withConnection`, where the caller would hold it
+-- unrestricted and could then use it twice. Before the `Ur` boundary,
+-- `\c => c` typechecked (CodeRabbit on #22); each of these must now fail.
+
+-- Returning the connection itself.
 failing "Trying to use linear name c in non-linear context"
-  escape : (tls : Tls) -> Config -> Either TlsError (List tls.Connection)
-  escape tls config = tls.withConnection config (\c => [c, c])
+  escapeConnection : (tls : Tls) -> Config -> Either TlsError tls.Connection
+  escapeConnection tls config = tls.withConnection config (\c => MkUr c)
+
+||| Data with a linear field, as a would-be smuggling container.
+data Smuggle : Type -> Type where
+  MkSmuggle : (1 x : a) -> Smuggle a
+
+-- Hiding the connection inside data with a linear field.
+failing "Trying to use linear name c in non-linear context"
+  smuggleConnection : (tls : Tls) -> Config -> Either TlsError (Smuggle tls.Connection)
+  smuggleConnection tls config = tls.withConnection config (\c => MkUr (MkSmuggle c))
+
+-- Handshaking inside the scope and carrying the session out.
+failing "Trying to use linear name s in non-linear context"
+  escapeSession : (tls : Tls) -> (1 h : Handshaken tls.Session tls.FirstUseSession) -> Ur (Maybe tls.Session)
+  escapeSession tls (Established s) = MkUr (Just s)
+  escapeSession tls (FirstUse f) = case tls.reject f of () => MkUr Nothing
+  escapeSession tls (Failed e) = MkUr Nothing

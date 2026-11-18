@@ -12,8 +12,10 @@
 ||| §1: Idris2 carries the contract that stands apart from any one
 ||| implementation). A `Tls` value is an implementation of the operations over
 ||| abstract handle types. Every operation takes its handle at quantity 1, and
-||| `withConnection` hands a new connection to a continuation at quantity 1,
-||| so client code never holds an unrestricted handle it could use twice.
+||| `withConnection` hands a new connection to a continuation at quantity 1
+||| that can return only an `Ur` (unrestricted) value. So client code never
+||| holds an unrestricted handle it could use twice, inside the scope or by
+||| carrying one out of it.
 |||
 ||| What this module does NOT establish: that the Zig wrapper is an
 ||| implementation of this record. That binding needs the C ABI that issue #11
@@ -92,6 +94,15 @@ public export
 data Step : (result, handle : Type) -> Type where
   Then : (result : a) -> (1 h : handle) -> Step a handle
 
+||| What a scope hands back across its boundary (Linear Haskell's `Ur`). The
+||| field is unrestricted, so wrapping a linear handle in it, directly or
+||| inside any other data, puts the handle in a non-linear position, which is
+||| a type error. Only handle-free results, such as the results of operations
+||| after their handles were consumed, can leave a scope.
+public export
+data Ur : Type -> Type where
+  MkUr : (x : a) -> Ur a
+
 ||| The outcome of `handshake`. The connection is consumed in every case:
 ||| root.zig releases its resources on every error path, so `Failed` carries
 ||| no handle.
@@ -129,8 +140,10 @@ record Tls where
   0 FirstUseSession : Type
 
   ||| Open a connection and hand it to the continuation at quantity 1
-  ||| (`connect` or `fromFd`). The continuation must dispose of it.
-  withConnection : {0 r : Type} -> Config -> ((1 c : Connection) -> r) -> Either TlsError r
+  ||| (`connect` or `fromFd`). The continuation must dispose of it, and can
+  ||| return only an `Ur` value, so no handle can leave the scope: returning
+  ||| the connection, or any data holding a handle, does not typecheck.
+  withConnection : {0 r : Type} -> Config -> ((1 c : Connection) -> Ur r) -> Either TlsError r
   ||| Abandon a connection without a handshake (`Connection.deinit`).
   abandon : (1 c : Connection) -> ()
   ||| Run the handshake (`Connection.handshake`). Consumes the connection.

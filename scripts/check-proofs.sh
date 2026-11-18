@@ -83,6 +83,15 @@ case "$PROVER" in
   coq)    CMD=coqc;   EXT=v;    ERROR_RE=''        ;;
 esac
 
+# Source roots outside PROOF_DIR where this prover's modules live by
+# convention. Used only when the MANIFEST is missing, so that deleting it
+# cannot turn modules there into "nothing to check". (With a MANIFEST, the
+# coverage scan covers every root it names.)
+case "$PROVER" in
+  idris2) KNOWN_ROOTS=(src/interface) ;;
+  *)      KNOWN_ROOTS=() ;;
+esac
+
 check_one() {
   # $1 source-root (rel to ROOT), $2 module (rel to source-root).
   # Sets LAST_OUT to the tool output on failure; returns 0 iff the module compiles and uses no escape hatch in code.
@@ -122,12 +131,14 @@ echo "=== $PROVER proof check ==="
 # this prover does not need the prover installed. Proofs or a MANIFEST present:
 # the toolchain check below still makes its absence fatal.
 if [ ! -f "$MANIFEST_FILE" ]; then
-  if [ -d "$PROOF_DIR" ] && [ -n "$(find "$PROOF_DIR" -name "*.$EXT" 2>/dev/null)" ]; then
-    echo "FAIL: $PROOF_DIR contains .$EXT proofs but has no MANIFEST." >&2
-    echo "      Create $MANIFEST_FILE listing each as 'gated' or 'quarantine'." >&2
-    exit 1
-  fi
-  echo "no $PROOF_DIR/*.$EXT proofs and no MANIFEST — nothing to check."
+  for dir in "$PROOF_DIR" "${KNOWN_ROOTS[@]}"; do
+    if [[ -d "$dir" ]] && [[ -n "$(find "$dir" -name "*.$EXT" -not -path '*/build/*' 2>/dev/null)" ]]; then
+      echo "FAIL: $dir contains .$EXT proofs but $MANIFEST_FILE does not exist." >&2
+      echo "      Create it listing each as 'gated' or 'quarantine'." >&2
+      exit 1
+    fi
+  done
+  echo "no .$EXT proofs in ${PROOF_DIR}${KNOWN_ROOTS[*]:+ or ${KNOWN_ROOTS[*]}} and no MANIFEST — nothing to check."
   exit 0
 fi
 
