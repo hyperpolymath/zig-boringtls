@@ -24,8 +24,13 @@ is TESTED versus OPEN.
 * [ ] Wrap BoringSSL's QUIC-TLS API (`SSL_set_quic_method`) for a QUIC stack
 
 === Later
-* [ ] Idris2 ABI layer over the Zig surface (`src/interface/Abi/`), with
-  linear (quantity-1) handles so a `Connection` is consumed exactly once
+* [x] Handle lifecycle as an Idris2 contract with linear (quantity-1)
+  handles, with misuse rejected at compile time (`src/interface/Abi/`,
+  PROOF-STATUS LIN-1 to LIN-3)
+* [ ] Idris2 binding of that contract over a C ABI exported by the Zig
+  wrapper, so Zig-side handles get the same guarantee (issue #11, CORR-1)
+* [ ] CI lane for `just proof-check-idris2`, with Idris2 provisioned through
+  Guix or the container (closes the PROOF-STATUS §6 deviation)
 * [ ] External security review (see the security notes, §4)
 
 == Next actions

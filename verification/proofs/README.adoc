@@ -2,59 +2,51 @@
 // Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 = Formal Verification Proofs
 
-This directory contains formal proofs organised by proof assistant.
+Which prover carries which obligation is set estate-wide by
+`3-practice/PROOF-POLICY.adoc` in `metadatastician/standards`. Read it there;
+this page maps it onto this repository.
 
-== Directory Structure
+zig-boringtls has *engineering* obligations only (PROOF-POLICY §1), so its
+prover is Idris2. The obligations are listed in
+`docs/status/PROOF-NEEDS.adoc` and the per-claim results in
+`docs/status/PROOF-STATUS.adoc`.
 
-[source]
-----
-proofs/
-├── idris2/          # Idris2 proofs (ABI, dependent types)
-│   ├── ABI/         # ABI-specific proofs (mandatory)
-│   │   ├── Pointers.idr    # Non-null pointer safety
-│   │   ├── Layout.idr      # Memory layout correctness
-│   │   ├── Platform.idr    # Platform type size proofs
-│   │   ├── Foreign.idr     # FFI return type proofs
-│   │   └── Compliance.idr  # C ABI compliance
-│   └── Types.idr    # Core data type well-formedness
-├── lean4/           # Lean4 proofs (algebra, lattices)
-│   └── ApiTypes.lean
-├── agda/            # Agda proofs (induction, metatheory)
-│   └── Properties.agda
-├── coq/             # Coq proofs (type systems, compilation)
-│   └── TypeSafety.v
-└── tlaplus/         # TLA+ specs (distributed protocols)
-    └── StateMachine.tla
-----
+== Where the proofs live
 
-== Verification Commands
+[cols="1,2",options="header"]
+|===
+| Path | Contents
+
+| `src/interface/Abi/` (package `src/interface/abi.ipkg`)
+| The handle-lifecycle contract as linear types (issue #11): `Tls.idr` (the
+contract), `Client.idr` (positive control), `Misuse.idr` (`failing` blocks
+that must be rejected). They live with the ABI seam, not here, because they
+are the interface itself.
+
+| `verification/proofs/idris2/MANIFEST`
+| Gates the modules above: `scripts/check-proofs.sh idris2` checks every
+listed module from its source root and fails on any `.idr` file under a
+listed root that is not listed.
+|===
+
+There are no Agda, Rocq, Lean or TLA+ files: nothing here is a theory
+obligation, and the template's sample proofs were removed because they proved
+nothing about this code.
+
+== Verification commands
 
 [source,bash]
 ----
-just proof-check-all       # Run all proof checkers
-just proof-check-idris2    # Idris2 only
-just proof-check-lean4     # Lean4 only
-just proof-check-agda      # Agda only
-just proof-check-coq       # Coq only
+just proof-check-idris2
+(cd src/interface && idris2 --typecheck abi.ipkg)
 ----
 
-== Banned Patterns
+`just proof-check-all` also runs the Agda, Rocq and Lean checks; with no
+proofs and no MANIFEST for a prover, that check reports "nothing to check"
+instead of requiring the toolchain.
 
-The following MUST NOT appear in any proof file:
+== Banned patterns
 
-- `believe_me` (Idris2)
-- `assert_total` (Idris2)
-- `postulate` (Idris2/Agda)
-- `sorry` (Lean4)
-- `Admitted` (Coq)
-- `unsafeCoerce` (Haskell)
-
-CI enforces this via `panic-attack assail --proofs-only`.
-
-== Adding New Proofs
-
-1. Choose the appropriate prover (see PROOF-NEEDS.md)
-2. Create the `.idr`/`.lean`/`.agda`/`.v`/`.tla` file in the right directory
-3. Ensure `%default total` (Idris2) or equivalent
-4. Run the verification command
-5. Update PROOF-STATUS.md
+`believe_me`, `assert_total`, `postulate`, `sorry`, `Admitted`,
+`unsafeCoerce` and `Obj.magic` must not appear in a proof file. Idris2 modules
+use `%default total`.

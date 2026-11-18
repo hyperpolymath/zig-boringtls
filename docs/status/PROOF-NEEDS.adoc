@@ -1,122 +1,132 @@
 // SPDX-License-Identifier: CC-BY-SA-4.0
 // Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
-// Template: rsr-template-repo/docs/status/PROOF-NEEDS.adoc
-// Authoritative master list: ~/Desktop/PROOF-REQUIREMENTS-MASTER.adoc
-= Proof Requirements — ZIG_BORINGTLS
+// The obligations. Per-claim results are in PROOF-STATUS.adoc.
+= Proof Requirements — zig-boringtls
 
-== Proof Tier
+Which prover carries which obligation is set by
+`3-practice/PROOF-POLICY.adoc` §1 in `metadatastician/standards`; where this
+file and the policy differ, the policy wins.
 
-// Assign one: T1 (Critical), T2 (High), T3 (Standard), T4 (Light), T5 (Exempt)
-*Tier*: T3 — Standard
+zig-boringtls is a thin Zig wrapper over BoringSSL. Its obligations are
+*engineering* ones: they name types and functions of this repository, so they
+go to Idris2 (§1). It has *no theory obligations*: nothing here would be true
+of any implementation, so there is no Agda source and no Rocq or Lean recheck
+leg. Cryptography, the TLS state machines and X.509 validation are BoringSSL's,
+recorded as an `ASSUMED` boundary (§1.1), not re-proved.
 
-== Proof Categories
+== Proof tier
 
-[cols="1,3,1", options="header"]
+*Tier*: T2 — High (proposed, owner to confirm). This is the TLS layer under
+the estate's DoH, DoQ and Gemini clients; a misuse here is a security defect
+downstream.
+
+== Categories
+
+[cols="1,3,1",options="header"]
 |===
 | Code | Meaning | Applies?
 
-| *TP* | Typing Proofs (type soundness, type safety) | Yes
-| *INV* | Invariant Proofs (state machines, monotonicity, bounds) |
-| *SEC* | Security Proofs (crypto, injection freedom, access control) |
-| *CONC* | Concurrency Proofs (linearizability, deadlock freedom) |
-| *ALG* | Algorithm Proofs (termination, correctness, bounds) |
-| *ABI* | ABI/FFI Proofs (memory layout, pointer safety, platform compat) | Yes
-| *DOM* | Domain-Specific Proofs (bespoke to this project) |
+| *TP* | Typing proofs | Yes: the handle lifecycle as linear types
+| *INV* | Invariant proofs (state machines) | Yes: the typestate is a state machine
+| *SEC* | Security proofs | Yes: misuse rows of `docs/security/TLS-WRAPPER-SECURITY.adoc` §3
+| *ABI* | ABI/FFI proofs | Not yet: see below
+| *DOM* | Domain-specific | Yes: TOFU evidence (issue #14)
+| *CONC*, *ALG* | Concurrency, algorithms | No
 |===
 
-== Mandatory Proofs (All RSR Repos)
+== Template ABI proofs (ABI-1 to ABI-5)
 
-These proofs come from the zig-boringtls and MUST be present in every repo:
+The template marks five ABI proofs (non-null pointers, layout, platform sizes,
+FFI return types, C ABI compliance) as mandatory. They are proofs about a C
+ABI the repository *exports*. zig-boringtls exports none: it wraps C, it does
+not export it (issue #11). They become applicable when #11 decides the export,
+and are recorded as not applicable until then rather than kept as template
+files that prove nothing about this code.
 
-=== ABI/FFI Boundary Proofs (Idris2)
+== Obligations
 
-[cols="1,3,1,3", options="header"]
+[cols="1,4,1,2,1",options="header"]
 |===
-| # | Proof | Status | File
+| ID | Obligation | Prover | Artefact | State
 
-| ABI-1 | Non-null pointer proofs (`So (ptr /= 0)`) | Needed | `verification/proofs/idris2/ABI/Pointers.idr`
-| ABI-2 | Memory layout correctness (`HasSize`, `HasAlignment`) | Needed | `verification/proofs/idris2/ABI/Layout.idr`
-| ABI-3 | Platform type size proofs (per platform) | Needed | `verification/proofs/idris2/ABI/Platform.idr`
-| ABI-4 | FFI function return type proofs | Needed | `verification/proofs/idris2/ABI/Foreign.idr`
-| ABI-5 | C ABI compliance (`CABICompliant`, `FieldsAligned`) | Needed | `verification/proofs/idris2/ABI/Compliance.idr`
+| LIN-1
+| The handle lifecycle is an interface contract in which every operation
+consumes its handle at quantity 1, and a new connection reaches client code
+only at quantity 1.
+| Idris2
+| `src/interface/Abi/Tls.idr`
+| Done (see PROOF-STATUS)
+
+| LIN-2
+| A client of the contract cannot express the misuses of security row 13 and
+its neighbours: double close, handshake on a stale copy, I/O after close, I/O
+on a first-use handle before acknowledgement, reuse after acknowledgement,
+dropping a session unclosed, smuggling a handle out of its scope.
+| Idris2
+| `src/interface/Abi/Misuse.idr`
+| Done
+
+| LIN-3
+| The contract is usable: a client covering every branch typechecks.
+| Idris2
+| `src/interface/Abi/Client.idr`
+| Done
+
+| CORR-1
+| The Zig wrapper implements the contract: an Idris2 binding over a C ABI
+exported by `src/interface/ffi/`. Until it exists, LIN-2 protects Idris2
+clients of the contract, not Zig callers, and security row 13 stays OPEN.
+| Idris2 + the export
+| issue #11
+| Open
+
+| CORR-2
+| The facts about root.zig the contract encodes: every `handshake` error path
+releases the connection; `close` releases even when it reports an error;
+`PinMismatch` leaves the first-use handle alive.
+| Source reading
+| `src/interface/ffi/src/root.zig`
+| Argued
+
+| TOFU-1
+| An observed pin after `PinMismatch` (`Connection.observedPin`) is an
+unauthenticated claim and cannot be persisted as a pin: give it a type
+distinct from `Pin`.
+| Idris2
+| issue #14, item 2
+| Open
+
+| BORROW-1
+| A `PeerCertificate` or `alpn()` slice cannot outlive its session (security
+row 12).
+| Idris2
+| to be designed
+| Open
+
+| POISON-1
+| After `error.Timeout` a session only permits `close` (security row 15).
+| Idris2
+| to be designed
+| Open
+
+| FFI-1
+| The hand-written declarations in `src/interface/ffi/src/c.zig` match the
+pinned BoringSSL headers.
+| None mapped: PROOF-POLICY §1 names no verifier for Zig
+| `src/interface/ffi/tests/ffi_drift.zig`
+| Tested
 |===
 
-=== Typing Proofs (Prover Varies)
+== Banned patterns
 
-[cols="1,3,1,3", options="header"]
-|===
-| # | Proof | Status | File
+None of these may appear in a proof file: `believe_me`, `assert_total`,
+`postulate`, `sorry`, `Admitted`, `unsafeCoerce`, `Obj.magic`. Idris2 modules
+use `%default total`.
 
-| TP-1 | Core data type well-formedness | Needed | `verification/proofs/idris2/Types.idr`
-| TP-2 | Public API type safety (exported functions) | Needed | `verification/proofs/lean4/ApiTypes.lean`
-|===
+== Verification commands
 
-== Project-Specific Proofs
-
-// Fill in proofs specific to this project. Copy from PROOF-REQUIREMENTS-MASTER.adoc
-// Delete this section for T4/T5 repos
-
-[cols="1,3,1,1,1,2", options="header"]
-|===
-| # | Proof Needed | Category | Prover | Priority | File(s)
-
-| | | | | |
-|===
-
-== Dangerous Patterns (BANNED)
-
-The following MUST NOT appear anywhere in proof files:
-
-[cols="2,2,3", options="header"]
-|===
-| Pattern | Language | Meaning
-
-| `believe_me` | Idris2 | Unsafe cast / trust-me
-| `assert_total` | Idris2 | Skip totality check
-| `postulate` | Idris2/Agda | Unproven axiom
-| `sorry` | Lean4 | Incomplete proof
-| `Admitted` | Coq | Incomplete proof
-| `unsafeCoerce` | Haskell | Unsafe type cast
-| `Obj.magic` | OCaml/ | Unsafe type cast
-| `unsafe` (unaudited) | Rust | Unsafe block without safety comment
-|===
-
-CI will reject any PR introducing these patterns (enforced by `panic-attack assail`).
-
-== Prover Selection Guide
-
-[cols="2,2,3", options="header"]
-|===
-| Use Case | Recommended Prover | Why
-
-| ABI/FFI boundaries | *Idris2* | Dependent types model layouts precisely
-| Type system proofs | *Coq* or *Lean4* | Mature proof assistants for metatheory
-| Algebraic properties | *Lean4* | Good mathlib support
-| Inductive/coinductive | *Agda* | Native support for (co)induction
-| Distributed systems | *TLA+* | Model checking for protocols
-| Numerical properties | *Isabelle* | Strong real analysis library
-|===
-
-== Proof File Locations
-
+[source,bash]
 ----
-verification/proofs/
-├── idris2/          # Idris2 proofs (ABI, dependent types)
-│   ├── ABI/         # ABI-specific proofs
-│   └── *.idr        # Project-specific Idris2 proofs
-├── lean4/           # Lean4 proofs (algebra, lattices)
-│   └── *.lean
-├── agda/            # Agda proofs (induction, metatheory)
-│   └── *.agda
-├── coq/             # Coq proofs (type systems, compilation)
-│   └── *.v
-└── tlaplus/         # TLA+ specs (distributed protocols)
-    └── *.tla
+just proof-check-idris2                       # scripts/check-proofs.sh idris2
+cd src/interface && idris2 --typecheck abi.ipkg
 ----
-
-== References
-
-* Master list: `~/Desktop/PROOF-REQUIREMENTS-MASTER.adoc`
-* Proof status tracking: `PROOF-STATUS.adoc` (this repo)
-* Proven library: `proven` repo (Idris2 verified foundations)
-* Template: `rsr-template-repo/docs/status/PROOF-NEEDS.adoc`

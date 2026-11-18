@@ -1,101 +1,140 @@
 // SPDX-License-Identifier: CC-BY-SA-4.0
 // Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
-// Template: rsr-template-repo/docs/status/PROOF-STATUS.adoc
-// Tracks proof completion. Requirements defined in PROOF-NEEDS.adoc
-= Proof Status — ZIG_BORINGTLS
+// The per-claim proof record. Obligations are in PROOF-NEEDS.adoc.
+= Proof Status — zig-boringtls
 
-== Summary
+This is the repository's proof-status file in the sense of
+`3-practice/PROOF-POLICY.adoc` §8.5 (`metadatastician/standards`): one row
+per claim, with its status token, its Proof Witness Grade (PWG) and its
+recheck legs. The estate census (hyperpolymath/mathesis) reads this file. A
+row says only what a receipt or a gate supports. There is no percentage or
+overall figure (§8.4).
 
-[cols="2,1,1,1,1,1", options="header"]
+== Vocabulary
+
+* *Status token* (§5): `proven`, `proven-with-postulates`, `tested-only`,
+  `argued`, `open`.
+* *PWG* (§8) grades *theory* theorems only. This repository has no theory
+  obligations (PROOF-NEEDS.adoc), so every row with a result is `n/a`, and an
+  `open` row is `ungraded`.
+* *Recheck legs* (§2) apply to theory only, so they are `n/a` throughout.
+
+== Claims
+
+[cols="1,4,1,1,1,1,3",options="header"]
 |===
-| Category | Total | Done | In Progress | Blocked | Remaining
+| ID | Claim (and the artefact that proves or tests it) | Token | PWG | Rocq leg | Lean leg | Receipt
 
-| ABI/FFI (ABI) | 5 | 0 | 0 | 0 | 5
-| Typing (TP) | 2 | 0 | 0 | 0 | 2
-| Invariant (INV) | 0 | 0 | 0 | 0 | 0
-| Security (SEC) | 0 | 0 | 0 | 0 | 0
-| Concurrency (CONC) | 0 | 0 | 0 | 0 | 0
-| Algorithm (ALG) | 0 | 0 | 0 | 0 | 0
-| Domain (DOM) | 0 | 0 | 0 | 0 | 0
-| *Total* | *7* | *0* | *0* | *0* | *7*
+| LIN-1
+| The handle-lifecycle contract `Abi.Tls` typechecks under `%default total`
+with no escape hatch. Every operation consumes its handle at quantity 1 and
+returns at most one handle; `withConnection` hands a new connection to a
+continuation at quantity 1. (`src/interface/Abi/Tls.idr`)
+| `proven`
+| n/a | n/a | n/a
+| `verification/receipts/idris2-abi-e8cebe5.adoc`: Idris2 0.7.0 on commit
+`e8cebe5`, inputs digest `a157dead…`. A local agent-session run; no CI lane
+yet.
+
+| LIN-2
+| A client of `Abi.Tls` cannot express any of seven misuses. Each is rejected
+by the typechecker with the error pinned in its `failing` block: double
+close, handshake on a stale copy, read after close and reuse of a first-use
+handle after acknowledgement (two uses of a linear name); dropping a session
+unclosed (zero uses); smuggling a connection out of `withConnection` (a
+linear name in a non-linear context); writing on a first-use handle before
+acknowledgement (a type mismatch: it is not a session).
+(`src/interface/Abi/Misuse.idr`) Mutation check: removing the quantity-1
+annotation from `close`, `handshake`, `read`, `acknowledge`, `reject` or the
+`withConnection` continuation makes this module fail.
+| `proven`
+| n/a | n/a | n/a
+| `verification/receipts/idris2-abi-e8cebe5.adoc`: Idris2 0.7.0 on commit
+`e8cebe5`, inputs digest `a157dead…`. A local agent-session run; no CI lane
+yet.
+
+| LIN-3
+| The contract is usable: a client covering every branch (established, first
+use acknowledged, first use refused, pin mismatch, handshake failure,
+write or read error) typechecks. (`src/interface/Abi/Client.idr`)
+| `proven`
+| n/a | n/a | n/a
+| `verification/receipts/idris2-abi-e8cebe5.adoc`: Idris2 0.7.0 on commit
+`e8cebe5`, inputs digest `a157dead…`. A local agent-session run; no CI lane
+yet.
+
+| CORR-1
+| The Zig wrapper implements `Abi.Tls`. Until it does, LIN-2 protects Idris2
+clients of the contract, not Zig callers. (issue #11: needs the C ABI export)
+| `open`
+| ungraded | n/a | n/a
+| —
+
+| CORR-2
+| root.zig behaves as the contract encodes: every `handshake` error path
+calls `release()` (so `Failed` carries no handle); `close` releases before
+reporting an error; `PinMismatch` leaves the first-use handle alive.
+(`src/interface/ffi/src/root.zig`, `Connection.handshake`, `Session.close`,
+`FirstUseSession.acknowledgePersistedPin`)
+| `argued`
+| n/a | n/a | n/a
+| Source reading at `3a9d29b`; no kernel checks it.
+
+| FFI-1
+| The declarations in `src/interface/ffi/src/c.zig` match the pinned
+BoringSSL headers: arity, varargs, calling convention, integer shape,
+const-ness, nullability, pointer narrowing, handle identity. Not checked:
+ownership (`get0`/`get1`).
+| `tested-only`
+| n/a | n/a | n/a
+| `src/interface/ffi/tests/ffi_drift.zig` in Zig CI;
+`scripts/ffi-drift-selftest.sh` catches 8 of 8 injected drifts.
+
+| TOFU-1
+| An observed pin after `PinMismatch` is an unauthenticated claim and cannot
+be persisted as a pin. (issue #14, item 2)
+| `open`
+| ungraded | n/a | n/a
+| —
+
+| BORROW-1
+| A `PeerCertificate` or `alpn()` slice cannot outlive its session (security
+row 12).
+| `open`
+| ungraded | n/a | n/a
+| —
+
+| POISON-1
+| After `error.Timeout` a session only permits `close` (security row 15).
+| `open`
+| ungraded | n/a | n/a
+| —
 |===
 
-*Overall*: 0% proven
+== Trust boundary
 
-== Proofs Done
+* *BoringSSL* (`0.20260929.0`, tag commit `427ec40c`): an `ASSUMED` boundary
+  (§1.1). The handshake state machines, record protection, cryptography and
+  X.509 validation are BoringSSL's; `docs/security/TLS-WRAPPER-SECURITY.adoc`
+  §1 lists what is taken from it. No claim above depends on it: LIN-1 to LIN-3
+  are about the contract, not the library.
+* *Idris2 0.7.0*: its elaborator and quantity (QTT) checker are trusted for
+  LIN-1 to LIN-3. A `failing` block is a claim that elaboration fails with the
+  stated error, so LIN-2 trusts the same checker to reject.
+* *Deviation (§6), state `open`*: Idris2 was built from source in an agent
+  session (tag `v0.7.0`, commit `27780073`, with Debian Chez Scheme
+  `9.5.8`), not installed from the Guix manifest or the
+  container, and no CI lane runs `just proof-check-idris2` yet. Closing it
+  means provisioning Idris2 through Guix or the container and adding the
+  lane.
 
-// Format:
-// | ID | Proof | Prover | File | Date | Verified By |
-// | ABI-1 | Non-null pointer proofs | Idris2 | verification/proofs/idris2/ABI/Pointers.idr | 2026-XX-XX | idris2 --check |
-
-[cols="1,3,1,3,1,2", options="header"]
-|===
-| ID | Proof | Prover | File | Date | Verified By
-
-| — | No proofs completed yet | — | — | — | —
-|===
-
-== Proofs In Progress
-
-[cols="1,3,1,2,1,2", options="header"]
-|===
-| ID | Proof | Prover | Assignee | Started | Blocker
-
-| — | — | — | — | — | —
-|===
-
-== Proofs Blocked
-
-[cols="1,3,2,3", options="header"]
-|===
-| ID | Proof | Blocked By | Notes
-
-| — | — | — | —
-|===
-
-== Proofs Remaining
-
-[cols="1,3,1,1,1,1", options="header"]
-|===
-| ID | Proof | Category | Prover | Priority | Est. Effort
-
-| ABI-1 | Non-null pointer proofs | ABI | Idris2 | P1 | 2h
-| ABI-2 | Memory layout correctness | ABI | Idris2 | P1 | 4h
-| ABI-3 | Platform type size proofs | ABI | Idris2 | P1 | 2h
-| ABI-4 | FFI function return type proofs | ABI | Idris2 | P1 | 2h
-| ABI-5 | C ABI compliance | ABI | Idris2 | P1 | 4h
-| TP-1 | Core data type well-formedness | TP | Idris2 | P1 | 4h
-| TP-2 | Public API type safety | TP | Lean4 | P2 | 4h
-|===
-
-== Verification Commands
+== Verification commands
 
 [source,bash]
 ----
-# Check all Idris2 proofs
-just proof-check-idris2
-
-# Check all Lean4 proofs
-just proof-check-lean4
-
-# Check all Agda proofs
-just proof-check-agda
-
-# Check all Coq proofs
-just proof-check-coq
-
-# Run all proof checks
-just proof-check-all
-
-# Scan for dangerous patterns
-panic-attack assail --proofs-only
+just proof-check-idris2                          # scripts/check-proofs.sh idris2
+(cd src/interface && idris2 --typecheck abi.ipkg)
 ----
 
-== Changelog
-
-[cols="1,3,1", options="header"]
-|===
-| Date | Change | By
-
-| 2026-04-04 | Initial proof status tracking | Template
-|===
+No Agda, Rocq or Lean proofs exist here, so `just proof-check-agda`,
+`proof-check-coq` and `proof-check-lean4` report "nothing to check".

@@ -45,7 +45,7 @@ proof-status:
     #!/usr/bin/env bash
     echo "=== Proof Status ==="
     echo ""
-    echo "Idris2: $(find verification/proofs/idris2 -name '*.idr' 2>/dev/null | wc -l) files"
+    echo "Idris2: $(find verification/proofs/idris2 src/interface/Abi -name '*.idr' 2>/dev/null | wc -l) files"
     echo "Lean4:  $(find verification/proofs/lean4 -name '*.lean' 2>/dev/null | wc -l) files"
     echo "Agda:   $(find verification/proofs/agda -name '*.agda' 2>/dev/null | wc -l) files"
     echo "Coq:    $(find verification/proofs/coq -name '*.v' 2>/dev/null | wc -l) files"
