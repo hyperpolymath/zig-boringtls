@@ -25,12 +25,12 @@ version = 0.1.0
 
 authors = "Jonathan D.A. Jewell"
 
-brief = "Formally-typed ABI/FFI seam (Idris2 type + layout proofs) for an RSR-templated repository"
+brief = "zig-boringtls handle lifecycle as linear types (interface contract, issue #11)"
 
 sourcedir = "."
 
 depends = base
 
-modules = Abi.Types
-        , Abi.Layout
-        , Abi.Foreign
+modules = Abi.Tls
+        , Abi.Client
+        , Abi.Misuse
