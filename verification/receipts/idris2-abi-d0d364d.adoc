@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: CC-BY-SA-4.0
+// Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
+= Receipt: Idris2 handle-lifecycle contract (LIN-1 to LIN-3)
+
+A record of one checker run, with the fields PROOF-POLICY §8.5.1 names. These
+are engineering claims, off the Proof Witness Grade ladder (§8.1), so this is
+a plain record and not a `proof-receipt` praxis deed. State: *current*. It
+supersedes `idris2-abi-e8cebe5.adoc`.
+
+[cols="1,3"]
+|===
+| Repository | `hyperpolymath/zig-boringtls`
+| Source commit | `d0d364d459eea37f3b2f1afac63a5e594103f362`
+| Checker | Idris 2, version 0.7.0, built from `idris-lang/Idris2` tag `v0.7.0` (`27780073c8631826d846499840b3857d9b9a4fd5`) with Chez Scheme `9.5.8+dfsg-1` (Debian)
+| Image | none: a Claude Code cloud agent session, not a digest-pinned container. Not isolated in the sense of §8.2.
+| Invocation | `bash scripts/check-proofs.sh idris2` in a clean worktree of the source commit (each module: `cd src/interface && idris2 --check Abi/<M>.idr`, pass = exit 0, no `Error:` line, and `scripts/scan-dangerous.sh` clean on the module)
+| Inputs digest | `8af1f353607c62b0302b218ca2d4edf23edcfa71ce8418d46236a7df3dcae581` (`metadatastician/standards` `scripts/proof-inputs-sha256.sh`; the §8.5.1 shell line gives the same value)
+| Axioms | none (no `postulate`, `believe_me` or `assert_total`; every module `%default total`)
+| Result | PASS: 3 of 3 gated modules; every `.idr` file under `src/interface` listed
+| Run | local, 2026-11-18; no CI run yet (deviation open, PROOF-STATUS.adoc)
+|===
+
+== Inputs manifest
+
+----
+c840dfc995bb2b6433f0481de5cd7ea1ce54a1a230045766186cdffcc4a6feaa  src/interface/Abi/Client.idr
+369c5023bdd26ff7553faa6c7b4580bcac15d265251a68e64b40a31b42080be2  src/interface/Abi/Misuse.idr
+b0ffe33bba4fd20689d83553866d1bc7a27b402760c242e408f2c892ed8ad44d  src/interface/Abi/Tls.idr
+----
+
+== Checker output
+
+----
+=== idris2 proof check ===
+Idris 2, version 0.7.0
+
+  src/interface                  Abi/Tls.idr              PASS
+  src/interface                  Abi/Client.idr           PASS
+  src/interface                  Abi/Misuse.idr           PASS
+
+=== manifest coverage (src/interface verification/proofs/idris2) ===
+  all 3 .idr file(s) accounted for
+
+RESULT: PASS -- gated modules compile; quarantined modules still fail as recorded
+----

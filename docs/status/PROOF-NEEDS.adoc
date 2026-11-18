@@ -51,8 +51,8 @@ files that prove nothing about this code.
 
 | LIN-1
 | The handle lifecycle is an interface contract in which every operation
-consumes its handle at quantity 1, and a new connection reaches client code
-only at quantity 1.
+consumes its handle at quantity 1, a new connection reaches client code
+only at quantity 1, and no handle can leave the scope it was opened in.
 | Idris2
 | `src/interface/Abi/Tls.idr`
 | Done (see PROOF-STATUS)
@@ -61,7 +61,8 @@ only at quantity 1.
 | A client of the contract cannot express the misuses of security row 13 and
 its neighbours: double close, handshake on a stale copy, I/O after close, I/O
 on a first-use handle before acknowledgement, reuse after acknowledgement,
-dropping a session unclosed, smuggling a handle out of its scope.
+dropping a session unclosed, carrying a handle out of its scope (returned
+directly, hidden in other data, or a session derived from it).
 | Idris2
 | `src/interface/Abi/Misuse.idr`
 | Done

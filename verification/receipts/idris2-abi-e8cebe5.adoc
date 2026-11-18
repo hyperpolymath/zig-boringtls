@@ -6,6 +6,12 @@ A record of one checker run, with the fields PROOF-POLICY §8.5.1 names. These
 are engineering claims, off the Proof Witness Grade ladder (§8.1), so this is
 a plain record and not a `proof-receipt` praxis deed.
 
+*State: superseded* by `idris2-abi-d0d364d.adoc`. The run below is genuine,
+but LIN-1 as it then stood was false: `withConnection` placed no constraint
+on its result, so a continuation could return the connection (`\c => c`) and
+the caller then held it unrestricted. Found by review on #22 and fixed in
+`d0d364d` with the `Ur` boundary.
+
 [cols="1,3"]
 |===
 | Repository | `hyperpolymath/zig-boringtls`

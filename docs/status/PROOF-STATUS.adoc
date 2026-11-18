@@ -29,28 +29,34 @@ overall figure (§8.4).
 | The handle-lifecycle contract `Abi.Tls` typechecks under `%default total`
 with no escape hatch. Every operation consumes its handle at quantity 1 and
 returns at most one handle; `withConnection` hands a new connection to a
-continuation at quantity 1. (`src/interface/Abi/Tls.idr`)
+continuation at quantity 1 that can return only an `Ur` (unrestricted)
+value, so no handle leaves the scope. (`src/interface/Abi/Tls.idr`) The
+claim as first recorded, at `e8cebe5`, was false: the continuation's result
+was unconstrained and `\c => c` let a caller hold the connection
+unrestricted. Found by review on #22; fixed in `d0d364d`.
 | `proven`
 | n/a | n/a | n/a
-| `verification/receipts/idris2-abi-e8cebe5.adoc`: Idris2 0.7.0 on commit
-`e8cebe5`, inputs digest `a157dead…`. A local agent-session run; no CI lane
+| `verification/receipts/idris2-abi-d0d364d.adoc`: Idris2 0.7.0 on commit
+`d0d364d`, inputs digest `8af1f353…`. A local agent-session run; no CI lane
 yet.
 
 | LIN-2
-| A client of `Abi.Tls` cannot express any of seven misuses. Each is rejected
+| A client of `Abi.Tls` cannot express any of nine misuses. Each is rejected
 by the typechecker with the error pinned in its `failing` block: double
 close, handshake on a stale copy, read after close and reuse of a first-use
 handle after acknowledgement (two uses of a linear name); dropping a session
-unclosed (zero uses); smuggling a connection out of `withConnection` (a
+unclosed (zero uses); returning the connection from `withConnection`, hiding
+it in data with a linear field, and carrying a session out of the scope (a
 linear name in a non-linear context); writing on a first-use handle before
 acknowledgement (a type mismatch: it is not a session).
 (`src/interface/Abi/Misuse.idr`) Mutation check: removing the quantity-1
 annotation from `close`, `handshake`, `read`, `acknowledge`, `reject` or the
-`withConnection` continuation makes this module fail.
+`withConnection` continuation, or giving `MkUr` a linear field, makes this
+module fail.
 | `proven`
 | n/a | n/a | n/a
-| `verification/receipts/idris2-abi-e8cebe5.adoc`: Idris2 0.7.0 on commit
-`e8cebe5`, inputs digest `a157dead…`. A local agent-session run; no CI lane
+| `verification/receipts/idris2-abi-d0d364d.adoc`: Idris2 0.7.0 on commit
+`d0d364d`, inputs digest `8af1f353…`. A local agent-session run; no CI lane
 yet.
 
 | LIN-3
@@ -59,8 +65,8 @@ use acknowledged, first use refused, pin mismatch, handshake failure,
 write or read error) typechecks. (`src/interface/Abi/Client.idr`)
 | `proven`
 | n/a | n/a | n/a
-| `verification/receipts/idris2-abi-e8cebe5.adoc`: Idris2 0.7.0 on commit
-`e8cebe5`, inputs digest `a157dead…`. A local agent-session run; no CI lane
+| `verification/receipts/idris2-abi-d0d364d.adoc`: Idris2 0.7.0 on commit
+`d0d364d`, inputs digest `8af1f353…`. A local agent-session run; no CI lane
 yet.
 
 | CORR-1
